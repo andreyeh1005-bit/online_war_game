@@ -1,0 +1,1808 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>兵推沙盒引擎 v6</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Color+Emoji&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg:        #eceae5;  --surface:  #fff;     --surface-2: #f5f3ef;
+      --border:    #d4d0c9;  --border-hi:#a09a90;
+      --ink:       #18130e;  --ink-2:    #48423c;  --ink-3:     #80766d;
+      --roc:       #004fc4;  --roc-bg:   #dce8ff;
+      --pla:       #c41a00;  --pla-bg:   #fde5e0;
+      --green:     #1a7a3a;  --green-bg: #dff5e8;
+      --amber:     #b05800;  --amber-bg: #fef2dc;
+      --red:       #c41a00;  --red-bg:   #fde5e0;
+      --fuel-full: #1a7a3a;  --fuel-warn:#b05800;  --fuel-crit: #c41a00;
+      --topbar-h:  52px;     --panel-w:  300px;
+      --font-sans: 'IBM Plex Sans',system-ui,sans-serif;
+      --font-mono: 'IBM Plex Mono',monospace;
+      --font-emoji:'Noto Color Emoji','Segoe UI Emoji','Apple Color Emoji',sans-serif;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    body{background:var(--bg);font-family:var(--font-sans);color:var(--ink);overflow:hidden;}
+
+    /* 強制所有 emoji 圖示使用跨平台字型 */
+    .ubadge, .drow-icon, .cl-icon, .t-icon,
+    .explosion-marker, .mp-item-icon, .mp-vol-icon,
+    .stance-dot-emoji {
+      font-family: var(--font-emoji);
+    }
+
+    /* ── Map ─────────────────────────────────── */
+    #map{position:fixed;top:var(--topbar-h);left:var(--panel-w);right:0;bottom:0;z-index:0;}
+    body.deploy-mode #map{cursor:crosshair;}
+    body.move-mode   #map{cursor:move;}
+    body.action-mode #map{cursor:cell;}
+
+    /* ── Topbar ──────────────────────────────── */
+    #topbar{
+      position:fixed;top:0;left:0;right:0;height:var(--topbar-h);
+      background:var(--ink);display:flex;align-items:center;padding:0 20px;gap:14px;
+      z-index:1200;box-shadow:0 2px 10px rgba(0,0,0,.35);
+    }
+    .logo{font-family:var(--font-mono);font-size:14px;font-weight:700;color:#fff;letter-spacing:4px;}
+    .logo em{color:#f5c842;font-style:normal;}
+    .topbar-div{width:1px;height:26px;background:#444;flex-shrink:0;}
+    .subtitle{font-size:11px;color:#aaa;letter-spacing:1px;font-family:var(--font-mono);}
+    #sync-pill{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;border-radius:20px;background:rgba(255,255,255,.08);}
+    #sync-dot{width:8px;height:8px;border-radius:50%;background:#4cbb6c;box-shadow:0 0 0 3px rgba(76,187,108,.25);animation:dot-pulse 2s ease-in-out infinite;transition:background .3s;}
+    #sync-dot.err{background:#e55;box-shadow:0 0 0 3px rgba(238,85,85,.25);}
+    @keyframes dot-pulse{0%,100%{opacity:1}50%{opacity:.45}}
+    #sync-label{font-family:var(--font-mono);font-size:10px;color:#bbb;letter-spacing:1px;}
+    #tick-counter{font-family:var(--font-mono);font-size:10px;color:#666;}
+    #clock{margin-left:auto;font-family:var(--font-mono);font-size:14px;font-weight:700;color:#f5c842;}
+
+    /* ── Panel ───────────────────────────────── */
+    #panel{
+      position:fixed;top:var(--topbar-h);left:0;bottom:0;width:var(--panel-w);
+      background:var(--surface);border-right:2px solid var(--border);
+      z-index:1100;display:flex;flex-direction:column;overflow:hidden;
+    }
+    #tab-bar{display:flex;flex-shrink:0;border-bottom:2px solid var(--border);}
+    .tab-btn{
+      flex:1;padding:8px 2px;font-family:var(--font-mono);font-size:8px;font-weight:700;
+      letter-spacing:1px;text-transform:uppercase;
+      background:var(--surface-2);color:var(--ink-3);
+      border:none;border-right:1px solid var(--border);cursor:pointer;transition:all .12s;
+    }
+    .tab-btn:last-child{border-right:none;}
+    .tab-btn:hover{background:var(--bg);color:var(--ink-2);}
+    .tab-btn.active{background:var(--surface);color:var(--ink);border-bottom:3px solid var(--ink);margin-bottom:-2px;}
+    .tab-pane{display:none;flex:1;overflow-y:auto;flex-direction:column;}
+    .tab-pane.active{display:flex;}
+
+    .sec{padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0;}
+    .sec-title{
+      font-family:var(--font-mono);font-size:9px;font-weight:700;
+      letter-spacing:2px;color:var(--ink-3);text-transform:uppercase;
+      margin-bottom:10px;display:flex;align-items:center;gap:7px;
+    }
+    .sec-title::before{content:'';width:12px;height:2px;background:var(--ink);flex-shrink:0;}
+    .field{margin-bottom:9px;}
+    .field-row{display:flex;gap:8px;}
+    .field-row .field{flex:1;}
+    label.lbl{display:block;font-size:10px;font-weight:600;color:var(--ink-2);margin-bottom:3px;}
+    input,select,textarea{
+      width:100%;padding:6px 9px;
+      background:var(--surface-2);border:1.5px solid var(--border);border-radius:3px;
+      color:var(--ink);font-family:var(--font-mono);font-size:11px;
+      outline:none;transition:border-color .15s,box-shadow .15s;appearance:none;
+    }
+    input:focus,select:focus,textarea:focus{border-color:var(--roc);box-shadow:0 0 0 3px rgba(0,79,196,.12);}
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:6px;
+      width:100%;padding:8px 12px;border-radius:3px;
+      font-family:var(--font-mono);font-size:11px;font-weight:700;
+      letter-spacing:1px;border:2px solid;cursor:pointer;transition:all .14s;margin-top:2px;
+    }
+    .btn-dark {background:var(--ink);  color:#fff;border-color:var(--ink);}  .btn-dark:hover {background:#333;}
+    .btn-blue {background:var(--roc);  color:#fff;border-color:var(--roc);}  .btn-blue:hover {background:#003a99;}
+    .btn-red  {background:var(--pla);  color:#fff;border-color:var(--pla);}  .btn-red:hover  {background:#991500;}
+    .btn-green{background:var(--green);color:#fff;border-color:var(--green);}.btn-green:hover{background:#135c2b;}
+    .btn-ghost{background:transparent;color:var(--ink);border-color:var(--border-hi);}.btn-ghost:hover{background:var(--bg);}
+    .btn-amber{background:var(--amber);color:#fff;border-color:var(--amber);}
+    .btn.armed{animation:armed-blink .9s ease-in-out infinite;}
+    @keyframes armed-blink{0%,100%{opacity:1}50%{opacity:.55}}
+    .msg{margin-top:7px;padding:5px 9px;font-family:var(--font-mono);font-size:10px;line-height:1.45;border-radius:3px;min-height:26px;background:var(--surface-2);color:var(--ink-3);border-left:3px solid transparent;transition:all .2s;}
+    .msg.info   {background:var(--roc-bg);  color:var(--roc);  border-left-color:var(--roc);}
+    .msg.success{background:var(--green-bg);color:var(--green);border-left-color:var(--green);}
+    .msg.warn   {background:var(--amber-bg);color:var(--amber);border-left-color:var(--amber);}
+    .msg.error  {background:var(--red-bg);  color:var(--red);  border-left-color:var(--red);}
+    .ucard{display:none;border-radius:4px;padding:8px 10px;margin-bottom:8px;border:2px solid var(--border);background:var(--surface-2);}
+    .ucard.show{display:block;}.ucard.roc{border-color:var(--roc);background:var(--roc-bg);}.ucard.pla{border-color:var(--pla);background:var(--pla-bg);}
+    .ucard-name{font-family:var(--font-mono);font-size:11px;font-weight:700;margin-bottom:2px;}
+    .ucard-info{font-size:10px;color:var(--ink-2);}
+    .steps{display:flex;align-items:center;gap:6px;margin-bottom:10px;}
+    .step{width:20px;height:20px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:9px;font-weight:700;border:2px solid var(--border-hi);color:var(--ink-3);transition:all .2s;}
+    .step.active{border-color:var(--roc);color:var(--roc);background:var(--roc-bg);}
+    .step.done{background:var(--green);border-color:var(--green);color:#fff;}
+    .step-lbl{font-size:9px;color:var(--ink-3);}.step-arr{font-size:11px;color:var(--border-hi);}
+    .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:10px;}
+    .stat-cell{background:var(--surface);padding:8px 12px;}
+    .stat-lbl{font-family:var(--font-mono);font-size:8px;letter-spacing:1.5px;color:var(--ink-3);text-transform:uppercase;}
+    .stat-val{font-family:var(--font-mono);font-size:20px;font-weight:700;}
+    .stat-val.roc{color:var(--roc);}.stat-val.pla{color:var(--pla);}.stat-val.total{color:var(--ink);}
+
+    /* ── 單位列表 ─────────────────────────────── */
+    #unit-list{flex:1;overflow-y:auto;}
+    .urow{display:flex;align-items:center;gap:9px;padding:7px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;border-left:3px solid transparent;}
+    .urow:hover{background:var(--bg);}
+    .urow.sel{background:var(--roc-bg);border-left-color:var(--roc);}
+    .urow.act-src{background:var(--roc-bg);border-left-color:var(--roc);}
+    .urow.act-tgt{background:var(--red-bg);border-left-color:var(--red);}
+    .urow.moving{background:var(--amber-bg);}
+    .urow.free-fire{border-left-color:var(--red)!important;}
+    .urow.airport{background:#f0f8ff;border-left-color:#4488cc;}
+    .urow.low-fuel{background:#fff8e0;}
+    .ubadge{width:32px;height:32px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;border:2px solid;position:relative;}
+    .ubadge.roc{background:var(--roc-bg);border-color:var(--roc);}
+    .ubadge.pla{background:var(--pla-bg);border-color:var(--pla);}
+    .ubadge.airport-badge{background:#e8f4ff;border-color:#4488cc;border-style:dashed;}
+    .ubadge.moving{animation:mv-pulse .7s ease-in-out infinite;}
+    @keyframes mv-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+    .stance-dot{position:absolute;bottom:-3px;right:-3px;width:8px;height:8px;border-radius:50%;border:1.5px solid #fff;}
+    .stance-dot.hold{background:var(--green);}
+    .stance-dot.free{background:var(--red);animation:dot-pulse 1s ease-in-out infinite;}
+    .urow-info{flex:1;min-width:0;}
+    .urow-name{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .urow-meta{font-family:var(--font-mono);font-size:9px;color:var(--ink-3);margin-top:1px;}
+    .ubars{display:flex;flex-direction:column;gap:3px;width:44px;}
+    .minibar{height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+    .minibar-fill{height:100%;border-radius:2px;transition:width .4s;}
+    .minibar-fill.hp   {background:var(--green);}
+    .minibar-fill.ammo {background:var(--amber);}
+    .minibar-fill.fuel-full  {background:var(--fuel-full);}
+    .minibar-fill.fuel-warn  {background:var(--fuel-warn);}
+    .minibar-fill.fuel-crit  {background:var(--fuel-crit);animation:crit-blink .5s ease-in-out infinite;}
+    @keyframes crit-blink{0%,100%{opacity:1}50%{opacity:.4}}
+
+    /* ── 設計局 ───────────────────────────────── */
+    #designer-list{border-bottom:1px solid var(--border);flex-shrink:0;}
+    .drow{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;}
+    .drow:hover{background:var(--bg);}.drow.active{background:var(--roc-bg);}
+    .drow-icon{font-size:16px;flex-shrink:0;}
+    .drow-info{flex:1;min-width:0;}
+    .drow-name{font-size:12px;font-weight:600;}
+    .drow-meta{font-family:var(--font-mono);font-size:9px;color:var(--ink-3);}
+    .tag{display:inline-block;padding:1px 7px;border-radius:12px;font-family:var(--font-mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+    .tag.land{background:var(--green-bg);color:var(--green);}
+    .tag.air {background:var(--roc-bg);  color:var(--roc);}
+    .tag.sea {background:#ddf0ff;        color:#005588;}
+    .del-btn{width:22px;height:22px;border-radius:3px;background:none;border:1.5px solid var(--border-hi);color:var(--red);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .12s;flex-shrink:0;}
+    .del-btn:hover{background:var(--red-bg);}
+    #designer-form{padding:12px 14px;flex-shrink:0;}
+    .chk-row{display:flex;gap:14px;margin-top:4px;}
+    .chk-row label{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-2);cursor:pointer;}
+    .two-col{display:flex;gap:8px;}
+    .two-col .btn{flex:1;width:auto;}
+
+    /* ── 圖示選擇器 ──────────────────────────── */
+    .icon-picker {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .icon-option {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 4px;
+      border-radius: 5px;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s;
+      background: var(--surface-2);
+      font-size: 9px;
+      color: var(--ink-3);
+      font-family: var(--font-mono);
+      user-select: none;
+    }
+
+    .icon-option:hover {
+      border-color: var(--roc);
+      background: var(--roc-bg);
+      color: var(--roc);
+    }
+
+    .icon-option.selected {
+      border-color: var(--roc);
+      background: var(--roc-bg);
+      color: var(--roc);
+      font-weight: 700;
+    }
+
+    .icon-option svg {
+      width: 28px;
+      height: 28px;
+    }
+
+    /* ── 戰鬥日誌 ─────────────────────────────── */
+    #log-search-bar{padding:8px 14px;border-bottom:1px solid var(--border);flex-shrink:0;}
+    #log-search{width:100%;padding:5px 9px;background:var(--surface-2);border:1.5px solid var(--border);border-radius:3px;font-family:var(--font-mono);font-size:11px;color:var(--ink);outline:none;}
+    #log-search:focus{border-color:var(--roc);}
+    #log-stats{padding:5px 14px;font-family:var(--font-mono);font-size:9px;color:var(--ink-3);border-bottom:1px solid var(--border);flex-shrink:0;letter-spacing:.5px;}
+    #combat-log-list{flex:1;overflow-y:auto;}
+    .cl-row{display:flex;align-items:flex-start;gap:8px;padding:7px 14px;border-bottom:1px solid var(--border);transition:background .1s;}
+    .cl-row:hover{background:var(--bg);}
+    .cl-row.cl-destroyed-row{background:rgba(196,26,0,.04);}
+    .cl-row.cl-counter-row  {background:rgba(176,88,0,.04);}
+    .cl-row.cl-hidden       {display:none;}
+    .cl-icon{font-size:14px;flex-shrink:0;line-height:1.6;}
+    .cl-main{flex:1;min-width:0;}
+    .cl-header{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;}
+    .cl-tick{font-family:var(--font-mono);font-size:9px;color:var(--ink-3);background:var(--surface-2);padding:1px 5px;border-radius:10px;flex-shrink:0;}
+    .cl-badge{font-family:var(--font-mono);font-size:8px;font-weight:700;padding:1px 5px;border-radius:10px;flex-shrink:0;}
+    .cl-badge.auto   {background:var(--red-bg);  color:var(--red);}
+    .cl-badge.counter{background:var(--amber-bg);color:var(--amber);}
+    .cl-badge.fuel   {background:#e8f0ff;         color:#2244aa;}
+    .cl-parties{font-size:10px;color:var(--ink-2);line-height:1.4;}
+    .cl-src-roc{color:var(--roc);font-weight:700;}
+    .cl-src-pla{color:var(--pla);font-weight:700;}
+    .cl-damage-bar{display:flex;align-items:center;gap:6px;margin-top:4px;}
+    .cl-dmg-num{font-family:var(--font-mono);font-size:10px;font-weight:700;color:var(--red);flex-shrink:0;min-width:28px;}
+    .cl-hp-track{flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
+    .cl-hp-fill{height:100%;border-radius:3px;transition:width .3s;}
+    .cl-hp-fill.healthy {background:var(--green);}
+    .cl-hp-fill.damaged {background:var(--amber);}
+    .cl-hp-fill.critical{background:var(--red);}
+    .cl-hp-text{font-family:var(--font-mono);font-size:9px;color:var(--ink-3);flex-shrink:0;}
+    .cl-destroy-badge{display:inline-flex;align-items:center;gap:3px;background:var(--ink);color:#fff;font-family:var(--font-mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:12px;margin-top:3px;letter-spacing:.5px;}
+
+    /* ── Popup ───────────────────────────────── */
+    .leaflet-popup-content-wrapper{background:var(--surface)!important;border:2px solid var(--border)!important;border-radius:6px!important;box-shadow:0 8px 24px rgba(0,0,0,.14)!important;font-family:var(--font-sans)!important;padding:0!important;}
+    .leaflet-popup-tip{background:var(--surface)!important;}
+    .leaflet-popup-close-button{color:var(--ink-3)!important;top:8px!important;right:10px!important;}
+    .pop-inner{padding:13px 15px;min-width:200px;}
+    .pop-title{font-family:var(--font-mono);font-size:12px;font-weight:700;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);}
+    .pop-title.roc{color:var(--roc);}.pop-title.pla{color:var(--pla);}
+    .pop-title.airport{color:#2255aa;}
+    .pop-row{display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:5px;gap:14px;}
+    .pop-key{color:var(--ink-3);font-family:var(--font-mono);font-size:10px;}
+    .pop-val{font-weight:600;font-family:var(--font-mono);}
+    .pop-bar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:6px;}
+    .pop-bar-fill{height:100%;border-radius:3px;transition:width .4s;}
+    .pop-bar-fill.hp   {background:var(--green);}
+    .pop-bar-fill.ammo {background:var(--amber);}
+    .pop-bar-fill.fuel-full {background:var(--fuel-full);}
+    .pop-bar-fill.fuel-warn {background:var(--fuel-warn);}
+    .pop-bar-fill.fuel-crit {background:var(--fuel-crit);}
+    .stance-toggle{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+    .stance-btn{flex:1;padding:6px 8px;border-radius:3px;cursor:pointer;font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.5px;border:2px solid;transition:all .15s;text-align:center;}
+    .stance-btn.hold-btn{background:var(--green-bg);color:var(--green);border-color:var(--green);}
+    .stance-btn.hold-btn.active{background:var(--green);color:#fff;}
+    .stance-btn.free-btn{background:var(--red-bg);color:var(--red);border-color:var(--red);}
+    .stance-btn.free-btn.active{background:var(--red);color:#fff;}
+    /* 返航按鈕（Popup 內，僅飛機顯示） */
+    .return-btn{width:100%;margin-top:6px;padding:6px 8px;border-radius:3px;cursor:pointer;font-family:var(--font-mono);font-size:10px;font-weight:700;border:2px solid var(--amber);background:var(--amber-bg);color:var(--amber);transition:all .15s;text-align:center;}
+    .return-btn:hover{background:var(--amber);color:#fff;}
+
+    /* ── 射程圈說明 & 座標 ───────────────────── */
+    #range-info{position:fixed;bottom:16px;left:calc(var(--panel-w) + 14px);background:rgba(255,255,255,.94);border:1.5px solid var(--border);border-radius:4px;padding:6px 12px;font-family:var(--font-mono);font-size:10px;color:var(--ink-2);z-index:900;display:none;box-shadow:0 2px 8px rgba(0,0,0,.1);}
+    #coords{position:fixed;bottom:16px;right:16px;background:rgba(255,255,255,.94);border:1.5px solid var(--border);border-radius:4px;padding:6px 12px;font-family:var(--font-mono);font-size:10px;color:var(--ink-2);z-index:900;box-shadow:0 2px 8px rgba(0,0,0,.1);}
+
+    /* ── 模式邊框 ─────────────────────────────── */
+    #mode-ring{position:fixed;top:var(--topbar-h);left:var(--panel-w);right:0;bottom:0;pointer-events:none;z-index:800;border:4px solid transparent;transition:border-color .2s;}
+    body.deploy-mode #mode-ring{border-color:rgba(176,88,0,.65);animation:ring-p 1s ease-in-out infinite;}
+    body.move-mode   #mode-ring{border-color:rgba(0,79,196,.65); animation:ring-p 1s ease-in-out infinite;}
+    body.action-mode #mode-ring{border-color:rgba(196,26,0,.65); animation:ring-p 1s ease-in-out infinite;}
+    @keyframes ring-p{0%,100%{opacity:.7}50%{opacity:1}}
+    .xhair{position:fixed;display:none;pointer-events:none;z-index:2000;transform:translate(-50%,-50%);}
+
+    /* ── Toast ───────────────────────────────── */
+    #toasts{position:fixed;top:calc(var(--topbar-h)+10px);right:14px;display:flex;flex-direction:column;gap:7px;z-index:3000;pointer-events:none;max-height:70vh;overflow:hidden;}
+    .toast{min-width:240px;max-width:340px;background:var(--surface);border-radius:5px;padding:10px 13px;font-size:11px;display:flex;gap:9px;align-items:flex-start;animation:t-in .2s ease-out;pointer-events:all;box-shadow:0 4px 18px rgba(0,0,0,.14);}
+    @keyframes t-in{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+    .toast.t-out{animation:t-out .2s ease-in forwards;}
+    @keyframes t-out{to{opacity:0;transform:translateX(18px);max-height:0;padding:0;margin:0}}
+    .toast.attack {border-left:4px solid var(--red);}
+    .toast.supply {border-left:4px solid var(--green);}
+    .toast.terr   {border-left:4px solid var(--amber);}
+    .toast.counter{border-left:4px solid var(--amber);}
+    .toast.destroy{border-left:4px solid #111;}
+    .toast.fuel-warn  {border-left:4px solid var(--amber);}
+    .toast.fuel-return{border-left:4px solid var(--roc);}
+    .toast.fuel-crash {border-left:4px solid #111;}
+    .toast.refueled   {border-left:4px solid var(--green);}
+    .t-icon{font-size:18px;flex-shrink:0;line-height:1;}
+    .t-title{font-weight:700;font-size:11px;margin-bottom:2px;color:var(--ink);}
+    .t-msg{color:var(--ink-2);line-height:1.4;}
+    .t-sub{font-family:var(--font-mono);font-size:9px;color:var(--ink-3);margin-top:2px;}
+
+    /* ── 爆炸動畫 ─────────────────────────────── */
+    .explosion-marker{animation:explode .8s ease-out forwards;font-size:28px;line-height:1;transform-origin:center;}
+    @keyframes explode{0%{transform:scale(.3);opacity:1}50%{transform:scale(1.6);opacity:1}100%{transform:scale(2);opacity:0}}
+
+    /* ── 音樂播放器 ──────────────────────────── */
+    #music-player {
+      position: fixed; bottom: 96px; right: 16px;
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 10px 14px;
+      z-index: 1050; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+      width: 260px; transition: transform .25s, opacity .25s;
+    }
+
+    #music-player.hidden { transform: translateY(8px); opacity: 0; pointer-events: none; }
+
+    #music-toggle {
+      position: fixed; bottom: 52px; right: 16px;
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--ink); color: #fff; border: none;
+      font-size: 16px; cursor: pointer; z-index: 1051;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25); transition: background .15s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #music-toggle:hover { background: #333; }
+
+    .mp-title {
+      font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+      letter-spacing: 2px; color: var(--ink-3); text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .mp-track-name {
+      font-size: 11px; font-weight: 600; color: var(--ink);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-bottom: 6px; min-height: 16px;
+    }
+
+    .mp-controls {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+    }
+
+    .mp-btn {
+      width: 28px; height: 28px; border-radius: 4px;
+      background: var(--surface-2); border: 1.5px solid var(--border);
+      color: var(--ink); cursor: pointer; font-size: 13px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .12s; flex-shrink: 0;
+    }
+    .mp-btn:hover { background: var(--bg); }
+    .mp-btn.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+    .mp-progress {
+      flex: 1; height: 4px; background: var(--border);
+      border-radius: 2px; overflow: hidden; cursor: pointer;
+    }
+    .mp-progress-fill { height: 100%; background: var(--roc); border-radius: 2px; transition: width .5s linear; }
+
+    .mp-time { font-family: var(--font-mono); font-size: 9px; color: var(--ink-3); flex-shrink: 0; }
+
+    .mp-volume-row {
+      display: flex; align-items: center; gap: 7px; margin-bottom: 8px;
+    }
+    .mp-vol-icon { font-size: 12px; flex-shrink: 0; }
+    input[type=range].mp-slider {
+      flex: 1; height: 4px; padding: 0; border: none; background: transparent;
+      accent-color: var(--roc); cursor: pointer;
+    }
+
+    .mp-playlist { max-height: 120px; overflow-y: auto; margin-top: 4px; }
+
+    .mp-item {
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 7px; border-radius: 4px; cursor: pointer;
+      font-size: 10px; transition: background .1s;
+    }
+    .mp-item:hover { background: var(--bg); }
+    .mp-item.playing { background: var(--roc-bg); color: var(--roc); font-weight: 600; }
+    .mp-item-icon { font-size: 11px; flex-shrink: 0; }
+    .mp-item-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mp-item-del { font-size: 12px; color: var(--ink-3); flex-shrink: 0; opacity: 0; transition: opacity .1s; }
+    .mp-item:hover .mp-item-del { opacity: 1; }
+
+    .mp-add-row {
+      display: flex; gap: 6px; margin-top: 6px; padding-top: 6px;
+      border-top: 1px solid var(--border);
+    }
+    .mp-add-row input { flex: 1; font-size: 10px; padding: 4px 8px; }
+    .mp-add-btn { flex-shrink: 0; padding: 4px 8px; font-size: 10px; white-space: nowrap; width: auto; margin-top: 0; }
+
+    ::-webkit-scrollbar{width:5px;}
+    ::-webkit-scrollbar-track{background:var(--surface-2);}
+    ::-webkit-scrollbar-thumb{background:var(--border-hi);border-radius:3px;}
+  </style>
+</head>
+<body>
+<div id="mode-ring"></div>
+<div class="xhair" id="aim-xhair">
+  <svg width="54" height="54" viewBox="0 0 54 54" fill="none">
+    <circle cx="27" cy="27" r="18" stroke="#b05800" stroke-width="1.8" stroke-dasharray="5 3"/>
+    <circle cx="27" cy="27" r="4" stroke="#b05800" stroke-width="1.8" fill="rgba(176,88,0,.2)"/>
+    <line x1="27" y1="4" x2="27" y2="16" stroke="#b05800" stroke-width="1.8"/>
+    <line x1="27" y1="38" x2="27" y2="50" stroke="#b05800" stroke-width="1.8"/>
+    <line x1="4" y1="27" x2="16" y2="27" stroke="#b05800" stroke-width="1.8"/>
+    <line x1="38" y1="27" x2="50" y2="27" stroke="#b05800" stroke-width="1.8"/>
+  </svg>
+</div>
+<div class="xhair" id="move-xhair">
+  <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+    <circle cx="24" cy="24" r="16" stroke="#004fc4" stroke-width="1.8" stroke-dasharray="4 2"/>
+    <circle cx="24" cy="24" r="4" stroke="#004fc4" stroke-width="1.8" fill="rgba(0,79,196,.18)"/>
+    <line x1="24" y1="3" x2="24" y2="13" stroke="#004fc4" stroke-width="1.8"/>
+    <line x1="24" y1="35" x2="24" y2="45" stroke="#004fc4" stroke-width="1.8"/>
+    <line x1="3" y1="24" x2="13" y2="24" stroke="#004fc4" stroke-width="1.8"/>
+    <line x1="35" y1="24" x2="45" y2="24" stroke="#004fc4" stroke-width="1.8"/>
+  </svg>
+</div>
+
+<div id="topbar">
+  <span class="logo">SAND<em>BOX</em></span>
+  <div class="topbar-div"></div>
+  <span class="subtitle">兵推沙盒引擎 v6 · WARGAME ENGINE</span>
+  <div id="sync-pill"><div id="sync-dot"></div><span id="sync-label">LIVE</span></div>
+  <span id="tick-counter">TICK —</span>
+  <div id="clock">--:--:--</div>
+</div>
+
+<div id="map"></div>
+<div id="range-info"></div>
+<div id="coords">LAT — · LNG —</div>
+<div id="toasts"></div>
+
+<!-- ════ 左側面板 ════ -->
+<div id="panel">
+  <div id="tab-bar">
+    <button class="tab-btn active" data-tab="tab-ops">作戰</button>
+    <button class="tab-btn" data-tab="tab-designer">設計局</button>
+    <button class="tab-btn" data-tab="tab-battle">戰場</button>
+    <button class="tab-btn" data-tab="tab-log">戰鬥日誌</button>
+  </div>
+
+  <!-- ══ 作戰 ═══════════════════════════════════ -->
+  <div class="tab-pane active" id="tab-ops">
+
+    <div class="sec">
+      <div class="sec-title">部署部隊</div>
+      <div class="field-row">
+        <div class="field"><label class="lbl">陣營</label>
+          <select id="sel-faction">
+            <option value="國軍">🔵 國軍 ROC</option>
+            <option value="共軍">🔴 共軍 PLA</option>
+          </select>
+        </div>
+        <div class="field"><label class="lbl">兵種</label>
+          <select id="sel-type"><option value="">載入中…</option></select>
+        </div>
+      </div>
+      <button class="btn btn-dark" id="btn-deploy">▶ 部署部隊</button>
+      <div class="msg" id="msg-deploy">選擇陣營與兵種後點擊地圖</div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">移動指令</div>
+      <div class="ucard" id="move-card">
+        <div class="ucard-name" id="move-card-name">—</div>
+        <div class="ucard-info" id="move-card-info"></div>
+      </div>
+      <button class="btn btn-blue" id="btn-move">⊙ 選取並移動</button>
+      <div class="msg" id="msg-move">點擊地圖上的單位以選取</div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">行動指令</div>
+      <div class="steps">
+        <div class="step" id="step1">1</div><span class="step-lbl">來源</span>
+        <span class="step-arr">›</span>
+        <div class="step" id="step2">2</div><span class="step-lbl">目標</span>
+        <span class="step-arr">›</span>
+        <div class="step" id="step3">✓</div><span class="step-lbl">執行</span>
+      </div>
+      <div class="ucard" id="act-card">
+        <div class="ucard-name" id="act-card-name">—</div>
+        <div class="ucard-info" id="act-card-info"></div>
+      </div>
+      <button class="btn btn-red" id="btn-action">⚔ 攻擊 / 補給</button>
+      <div class="msg" id="msg-action">選取己方單位後點擊目標</div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">存檔</div>
+      <div class="two-col">
+        <button class="btn btn-green" id="btn-save">💾 手動存檔</button>
+        <button class="btn btn-ghost" id="btn-reset">🗑 重置戰場</button>
+      </div>
+      <div class="msg" id="msg-save">每 10 秒自動存檔，重啟後還原</div>
+    </div>
+  </div>
+
+  <!-- ══ 設計局 ═══════════════════════════════════ -->
+  <div class="tab-pane" id="tab-designer" style="flex-direction:column">
+    <div id="designer-list"></div>
+    <div id="designer-form">
+      <div class="sec-title" style="margin-bottom:10px">新增 / 編輯兵種</div>
+      <div class="field"><label class="lbl">兵種名稱</label><input type="text" id="d-name" placeholder="例：特種部隊"></div>
+      <div class="field-row">
+        <div class="field"><label class="lbl">領域</label>
+          <select id="d-domain">
+            <option value="land">🟤 陸地</option>
+            <option value="air">🔵 空中</option>
+            <option value="sea">🔵 海上</option>
+          </select>
+        </div>
+        <div class="field"><label class="lbl">HP</label><input type="number" id="d-hp" value="100" min="1"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label class="lbl">攻擊力</label><input type="number" id="d-attack" value="20" min="0"></div>
+        <div class="field"><label class="lbl">射程(km)</label><input type="number" id="d-range" value="1.0" min="0" step="0.1"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label class="lbl">速度(km/h)  0=機場</label><input type="number" id="d-speed" value="5" min="0"></div>
+        <div class="field"><label class="lbl">每次耗彈</label><input type="number" id="d-ammo" value="1" min="0"></div>
+      </div>
+      <!-- ── 燃油 / 補給參數 ─────────────────── -->
+      <div class="field-row">
+        <div class="field">
+          <label class="lbl">燃油消耗/秒 (0=無限)</label>
+          <input type="number" id="d-burn" value="0" min="0" step="0.1">
+        </div>
+        <div class="field">
+          <label class="lbl">補給半徑 km (機場用)</label>
+          <input type="number" id="d-refuel-range" value="0" min="0" step="0.1">
+        </div>
+      </div>
+      <div class="field">
+        <label class="lbl">補油速度/秒 (機場用)</label>
+        <input type="number" id="d-refuel-rate" value="0" min="0" step="1">
+      </div>
+      <div class="field"><label class="lbl">可攻擊領域</label>
+        <div class="chk-row">
+          <label><input type="checkbox" id="ch-land" value="land" checked> 陸</label>
+          <label><input type="checkbox" id="ch-air"  value="air"> 空</label>
+          <label><input type="checkbox" id="ch-sea"  value="sea"> 海</label>
+        </div>
+      </div>
+      <div class="field"><label class="lbl">剋制關係(JSON)</label><textarea id="d-bonuses" rows="2" placeholder='{"步兵":2.0}'>{}</textarea></div>
+
+      <!-- ── 圖示選擇 ─────────────────────────── -->
+      <div class="field">
+        <label class="lbl">地圖圖示</label>
+        <div class="icon-picker" id="icon-picker">
+          <!-- 由 JS 動態產生 -->
+        </div>
+        <input type="hidden" id="d-icon" value="infantry">
+      </div>
+      <div class="two-col">
+        <button class="btn btn-green" id="btn-save-unit">💾 儲存兵種</button>
+        <button class="btn btn-ghost" id="btn-clear-form">清除</button>
+      </div>
+      <div class="msg" id="msg-designer" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- ══ 戰場態勢 ════════════════════════════════ -->
+  <div class="tab-pane" id="tab-battle" style="flex-direction:column">
+    <div class="sec" style="flex-shrink:0">
+      <div class="stats-grid">
+        <div class="stat-cell"><div class="stat-lbl">國軍</div><div class="stat-val roc" id="cnt-roc">0</div></div>
+        <div class="stat-cell"><div class="stat-lbl">共軍</div><div class="stat-val pla" id="cnt-pla">0</div></div>
+        <div class="stat-cell" style="grid-column:span 2"><div class="stat-lbl">總單位</div><div class="stat-val total" id="cnt-total">0</div></div>
+      </div>
+    </div>
+    <div id="unit-list"></div>
+  </div>
+
+  <!-- ══ 戰鬥日誌 ════════════════════════════════ -->
+  <div class="tab-pane" id="tab-log" style="flex-direction:column">
+    <div class="sec" style="flex-shrink:0">
+      <div class="sec-title">自動戰鬥紀錄</div>
+      <div class="two-col">
+        <button class="btn btn-ghost" id="btn-clear-log" style="margin-top:0">🗑 清除</button>
+        <button class="btn btn-ghost" id="btn-export-log" style="margin-top:0">📋 複製</button>
+      </div>
+    </div>
+    <div id="log-search-bar">
+      <input type="text" id="log-search" placeholder="🔍  搜尋陣營、兵種、單位 ID…">
+    </div>
+    <div id="log-stats">共 <span id="log-count">0</span> 筆 | 摧毀 <span id="log-destroy-count">0</span> 個</div>
+    <div id="combat-log-list"></div>
+  </div>
+</div>
+
+<!-- ════ 音樂播放器 ════ -->
+<button id="music-toggle" title="音樂播放器">🎵</button>
+
+<div id="music-player" class="hidden">
+  <div class="mp-title">🎵 背景音樂</div>
+  <div class="mp-track-name" id="mp-track-name">— 尚未選擇歌曲 —</div>
+
+  <div class="mp-controls">
+    <button class="mp-btn" id="mp-prev" title="上一首">⏮</button>
+    <button class="mp-btn" id="mp-play" title="播放/暫停">▶</button>
+    <button class="mp-btn" id="mp-next" title="下一首">⏭</button>
+    <div class="mp-progress" id="mp-progress">
+      <div class="mp-progress-fill" id="mp-progress-fill" style="width:0%"></div>
+    </div>
+    <span class="mp-time" id="mp-time">0:00</span>
+  </div>
+
+  <div class="mp-volume-row">
+    <span class="mp-vol-icon">🔈</span>
+    <input type="range" class="mp-slider" id="mp-vol" min="0" max="1" step="0.05" value="0.5">
+    <span class="mp-vol-icon">🔊</span>
+    <button class="mp-btn" id="mp-loop" title="循環播放" style="width:auto;padding:0 8px;font-size:10px;">循環</button>
+  </div>
+
+  <div class="mp-playlist" id="mp-playlist"></div>
+
+  <div class="mp-add-row">
+    <input type="text" id="mp-url-input" placeholder="貼上 MP3 / YouTube 網址或本地檔名">
+    <button class="btn btn-dark mp-add-btn" id="mp-add-btn">＋ 加入</button>
+  </div>
+  <!-- 本地檔案選擇 -->
+  <input type="file" id="mp-file-input" accept="audio/*" multiple style="display:none">
+  <button class="btn btn-ghost" id="mp-file-btn" style="margin-top:6px;font-size:10px;padding:5px;">📁 選擇本地音樂檔案</button>
+</div>
+
+<audio id="audio-player"></audio>
+
+<script>
+'use strict';
+const API_BASE_URL = 'http://127.0.0.1:8000';
+// ═══════════════════════════════════════════════════
+//  SVG 圖示庫（完全不依賴字型，跨平台穩定）
+// ═══════════════════════════════════════════════════
+const SVG_ICONS = {
+
+  // 步兵：持槍人形
+  infantry: {
+    label: '步兵',
+    svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="14" cy="5" r="3" fill="currentColor"/>
+      <rect x="12.5" y="9" width="3" height="8" rx="1.5" fill="currentColor"/>
+      <rect x="8"  y="10" width="12" height="2.5" rx="1.25" fill="currentColor"/>
+      <rect x="10" y="17" width="3"  height="7"   rx="1.5"  fill="currentColor"/>
+      <rect x="15" y="17" width="3"  height="7"   rx="1.5"  fill="currentColor"/>
+      <rect x="18" y="9.5" width="6" height="1.5" rx="0.75" fill="currentColor"/>
+    </svg>`,
+  },
+
+  // 戰車：履帶 + 砲管
+  tank: {
+    label: '戰車',
+    svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="15" width="22" height="8" rx="2" fill="currentColor"/>
+      <rect x="2" y="18" width="24" height="5" rx="2.5" fill="currentColor" opacity="0.6"/>
+      <ellipse cx="6"  cy="23" rx="3" ry="3" fill="currentColor"/>
+      <ellipse cx="14" cy="23" rx="3" ry="3" fill="currentColor"/>
+      <ellipse cx="22" cy="23" rx="3" ry="3" fill="currentColor"/>
+      <rect x="6" y="9" width="13" height="8" rx="2" fill="currentColor"/>
+      <rect x="16" y="11" width="10" height="3" rx="1.5" fill="currentColor"/>
+    </svg>`,
+  },
+
+  // 砲兵：砲身 + 輪子 + 砲架
+  cannon: {
+    label: '砲兵',
+    svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="11" width="16" height="6" rx="3" fill="currentColor"/>
+      <rect x="14" y="12.5" width="12" height="3" rx="1.5" fill="currentColor"/>
+      <ellipse cx="6"  cy="20" rx="4" ry="4" fill="currentColor"/>
+      <ellipse cx="16" cy="20" rx="4" ry="4" fill="currentColor"/>
+      <ellipse cx="6"  cy="20" rx="2" ry="2" fill="white" opacity="0.5"/>
+      <ellipse cx="16" cy="20" rx="2" ry="2" fill="white" opacity="0.5"/>
+      <rect x="6" y="17" width="10" height="1.5" rx="0.75" fill="currentColor"/>
+    </svg>`,
+  },
+
+  // 飛機：俯視戰機
+  plane: {
+    label: '飛機',
+    svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14 2 L16 14 L26 18 L26 21 L16 18 L17 24 L20 25 L20 27 L14 25 L8 27 L8 25 L11 24 L12 18 L2 21 L2 18 L12 14 Z"
+            fill="currentColor"/>
+    </svg>`,
+  },
+
+  // 艦艇：船身側面
+  ship: {
+    label: '艦艇',
+    svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 19 Q3 23 14 23 Q25 23 26 19 L24 15 L4 15 Z" fill="currentColor"/>
+      <rect x="8" y="9" width="12" height="7" rx="1" fill="currentColor"/>
+      <rect x="12" y="5" width="4"  height="5" rx="1" fill="currentColor"/>
+      <rect x="5" y="12" width="6" height="2" rx="1" fill="currentColor" opacity="0.6"/>
+      <rect x="17" y="12" width="6" height="2" rx="1" fill="currentColor" opacity="0.6"/>
+    </svg>`,
+  },
+
+  // 機場旗幟（與地圖上一致）
+  flag: {
+    label: '機場',
+    svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="6" y="3" width="2.5" height="22" rx="1" fill="currentColor"/>
+      <path d="M8.5 4 L22 10 L8.5 16 Z" fill="currentColor"/>
+      <circle cx="7.25" cy="26" r="2.5" fill="currentColor"/>
+    </svg>`,
+  },
+};
+
+// 圖示 key → 預設對應兵種名稱
+const DEFAULT_ICON_MAP = {
+  '步兵':   'infantry',
+  '坦克':   'tank',
+  '轟炸機': 'plane',
+  '驅逐艦': 'ship',
+  '機場':   'flag',
+};
+
+// Font Awesome 圖示（面板/Popup 用，不在 Leaflet Marker 裡）
+const DOMAIN_ICON = {
+  land: '<i class="fa-solid fa-person-rifle"></i>',
+  air:  '<i class="fa-solid fa-jet-fighter"></i>',
+  sea:  '<i class="fa-solid fa-ship"></i>',
+};
+
+// 兵種名稱對應圖示 key（從 units.json 讀取 icon 欄位，fallback 到此表）
+const UNIT_TYPE_ICON_KEY = {
+  '步兵':   'infantry',
+  '坦克':   'tank',
+  '轟炸機': 'plane',
+  '驅逐艦': 'ship',
+  '機場':   'flag',
+};
+const SUPPLY_TYPES = new Set(['補給兵','後勤']);
+const MAX_FUEL = 100;
+// ★ 與 main.py 的 REFUEL_RANGE_KM 保持一致（改這裡不影響後端判定，僅用於顯示圓圈）
+const REFUEL_RANGE_KM_DISPLAY = 0.5;
+let unitTypes = {};
+
+function getIconKey(type){
+  // 優先讀兵種設定的 icon 欄位，其次查預設對應表，最後用領域 fallback
+  const fromConfig = unitTypes[type]?.icon;
+  if(fromConfig && SVG_ICONS[fromConfig]) return fromConfig;
+  if(UNIT_TYPE_ICON_KEY[type]) return UNIT_TYPE_ICON_KEY[type];
+  const domain = unitTypes[type]?.domain;
+  if(domain === 'air')  return 'plane';
+  if(domain === 'sea')  return 'ship';
+  return 'infantry';
+}
+
+function getUnitIcon(type, color='currentColor'){
+  const key = getIconKey(type);
+  const ico  = SVG_ICONS[key];
+  if(!ico) return '<i class="fa-solid fa-circle-question"></i>';
+  // 把 currentColor 替換成實際顏色（讓 SVG 繼承父元素色彩）
+  return ico.svg.replace(/currentColor/g, color);
+}
+function isGround(type){ return (unitTypes[type]?.domain??'land')==='land'; }
+function isAirUnit(unit){ return unit.domain==='air' && !unit.is_airport; }
+function fuelClass(fuel){
+  const pct=fuel/MAX_FUEL*100;
+  return pct>30?'fuel-full': pct>20?'fuel-warn':'fuel-crit';
+}
+
+// ── 標籤頁 ──────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── 地圖 ────────────────────────────────────────
+const map=L.map('map',{
+  center:[24.82,120.92], zoom:13,
+  zoomControl:true, attributionControl:true,
+  // 確保地圖不自動跟隨任何物件移動
+  trackResize: false,
+  inertia: false,
+});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+map.on('mousemove',e=>{
+  document.getElementById('coords').textContent=`LAT ${e.latlng.lat.toFixed(5)}  ·  LNG ${e.latlng.lng.toFixed(5)}`;
+});
+
+// ── 射程圈 ──────────────────────────────────────
+let rangeCircle=null;
+function showRangeCircle(unit){
+  clearRangeCircle();
+  const isROC=unit.faction==='國軍';
+  const isAP=unit.is_airport;
+
+  if(isAP){
+    const color      = isROC?'#2255aa':'#aa2200';
+    const refuelRange= unitTypes[unit.type]?.refuel_range_km ?? REFUEL_RANGE_KM_DISPLAY;
+    rangeCircle=L.circle([unit.lat,unit.lng],{
+      radius: refuelRange * 1000,
+      color, weight:2, opacity:.9,
+      fillColor:color, fillOpacity:.08, dashArray:'6 4',
+    }).addTo(map);
+    const ri=document.getElementById('range-info');
+    ri.innerHTML=`<span style="color:${color};font-weight:700"><i class="fa-solid fa-flag"></i> ${unit.faction} 機場</span> 補給範圍 <strong>${refuelRange} km</strong>`;
+    ri.style.display='block';
+    return;
+  }
+
+  // 一般部隊：顯示射程圈
+  const color=isROC?'#004fc4':'#c41a00';
+  rangeCircle=L.circle([unit.lat,unit.lng],{
+    radius:(unit.max_range_km??1)*1000,color,weight:1.5,opacity:.8,
+    fillColor:color,fillOpacity:.05,dashArray:'5 4',
+  }).addTo(map);
+  const ri=document.getElementById('range-info');
+  ri.innerHTML=`<span style="color:${color};font-weight:700">${unit.faction} ${getUnitIcon(unit.type)} ${unit.type}</span> 射程 <strong>${unit.max_range_km} km</strong>`;
+  ri.style.display='block';
+}
+function clearRangeCircle(){
+  if(rangeCircle){rangeCircle.remove();rangeCircle=null;}
+  document.getElementById('range-info').style.display='none';
+}
+map.on('click',()=>{ if(!deployMode&&!moveMode&&!actionMode) clearRangeCircle(); });
+
+// ── Marker 工廠 ──────────────────────────────────
+function makeMarker(unit,selected=false,actionTarget=false){
+  const isROC   = unit.faction==='國軍';
+  const isAP    = unit.is_airport;
+  const accent  = isROC?'#004fc4':'#c41a00';
+  const bgLight = isROC?'#dce8ff':'#fde5e0';
+  const icon    = getUnitIcon(unit.type);
+  const isFree  = unit.stance==='free';
+  const isMoving= unit.target_lat!=null;
+  const isReturnFlag = unit.returning;
+
+  let outlineStyle='';
+  if(selected)       outlineStyle=`outline:3px solid #fff;box-shadow:0 0 0 5px ${accent};`;
+  else if(actionTarget) outlineStyle=`outline:3px solid #fff;box-shadow:0 0 0 5px #c41a00;`;
+
+  // 機場樣式
+  if(isAP){
+    const apColor  = isROC ? '#2255aa' : '#aa2200';
+    const flagColor= isROC ? '#004fc4' : '#c41a00';
+    const starChar = isROC ? '☀' : '★';
+    const starColor= isROC ? '#fff'    : '#ffde00';
+
+    // SVG 旗幟：旗桿 + 三角旗面，完全不依賴字型
+    const html = `
+      <div style="position:relative;width:36px;height:40px;display:flex;align-items:flex-end;justify-content:center;">
+        <svg width="36" height="40" viewBox="0 0 36 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- 旗桿 -->
+          <rect x="8" y="4" width="2.5" height="32" rx="1" fill="${apColor}"/>
+          <!-- 旗面（三角）-->
+          <path d="M10.5 5 L28 13 L10.5 21 Z" fill="${flagColor}" stroke="${apColor}" stroke-width="0.8"/>
+          <!-- 旗面上的陣營符號 -->
+          <text x="16" y="16" text-anchor="middle" font-size="8"
+                font-family="serif" fill="${starColor}" font-weight="bold">${starChar}</text>
+          <!-- 底座小圓 -->
+          <circle cx="9.75" cy="37" r="3" fill="${apColor}"/>
+        </svg>
+        ${outlineStyle ? `<div style="position:absolute;inset:0;border-radius:4px;${outlineStyle}"></div>` : ''}
+      </div>`;
+
+    return L.divIcon({html, className:'', iconSize:[36,40], iconAnchor:[10,40], popupAnchor:[8,-42]});
+  }
+
+  const flag=isROC
+    ?`<div style="position:absolute;top:-5px;right:-5px;width:14px;height:14px;border-radius:50%;background:#004fc4;border:1.5px solid #fff;display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;font-weight:900;">☀</div>`
+    :`<div style="position:absolute;top:-5px;right:-5px;width:14px;height:14px;border-radius:50%;background:#c41a00;border:1.5px solid #fff;display:flex;align-items:center;justify-content:center;font-size:8px;color:#ffde00;font-weight:900;">★</div>`;
+
+  // 低燃油警告圈（飛機）
+  const fuelRing = isAirUnit(unit) && unit.fuel<=20
+    ? `<div style="position:absolute;inset:-4px;border-radius:9px;border:2px solid #c41a00;animation:crit-blink .5s ease-in-out infinite;"></div>`
+    : '';
+
+  // 返航中標籤
+  const returnLabel = isReturnFlag
+    ? `<div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:var(--amber);color:#fff;font-size:7px;font-family:var(--font-mono);padding:1px 4px;border-radius:8px;white-space:nowrap;font-weight:700;">↩返航</div>`
+    : '';
+
+  let bottomDot='';
+  if(isMoving&&!isReturnFlag) bottomDot=`<div style="position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);width:7px;height:7px;border-radius:50%;background:${accent};border:1.5px solid #fff;animation:mv-pulse .7s ease-in-out infinite;"></div>`;
+  else if(isFree)             bottomDot=`<div style="position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);width:9px;height:6px;border-radius:2px;background:#c41a00;border:1.5px solid #fff;"></div>`;
+  else                        bottomDot=`<div style="position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid ${accent};"></div>`;
+
+  // SVG 圖示（已包含顏色）
+  const svgIcon = getUnitIcon(unit.type, accent);
+
+  const html=`<div style="position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:${bgLight};border-radius:6px;border:2.5px solid ${accent};${outlineStyle}">
+    ${fuelRing}${returnLabel}
+    <div style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;">
+      ${svgIcon}
+    </div>
+    ${flag}${bottomDot}
+  </div>`;
+  return L.divIcon({html,className:'',iconSize:[34,42],iconAnchor:[17,42],popupAnchor:[0,-44]});
+}
+
+// ── Popup ────────────────────────────────────────
+function makePopup(unit){
+  const cls   = unit.faction==='國軍'?'roc':'pla';
+  const ut    = unitTypes[unit.type]??{};
+  const maxHp = ut.hp??100;
+  const isAP  = unit.is_airport;
+
+  if(isAP){
+    const apColor    = unit.faction==='國軍'?'#2255aa':'#aa2200';
+    const refuelRange= unitTypes[unit.type]?.refuel_range_km ?? REFUEL_RANGE_KM_DISPLAY;
+    return `<div class="pop-inner">
+      <div class="pop-title airport"><i class="fa-solid fa-flag"></i> ${unit.faction} 機場</div>
+      <div class="pop-row"><span class="pop-key">ID</span><span class="pop-val">${unit.id}</span></div>
+      <div class="pop-row"><span class="pop-key">耐久值</span><span class="pop-val" style="color:var(--green)">${unit.hp} / ${maxHp}</span></div>
+      <div class="pop-bar"><div class="pop-bar-fill hp" style="width:${unit.hp/maxHp*100}%"></div></div>
+      <div class="pop-row"><span class="pop-key">補給範圍</span><span class="pop-val" style="color:${apColor}">${refuelRange} km</span></div>
+      <div class="pop-row"><span class="pop-key">補油速度</span><span class="pop-val" style="color:${apColor}">${unitTypes[unit.type]?.refuel_per_tick??5} / 秒</span></div>
+      <div class="pop-row"><span class="pop-key">狀態</span><span class="pop-val" style="color:#2255aa">正常運作</span></div>
+      <div class="pop-row" style="margin-top:4px"><span class="pop-key">座標</span><span class="pop-val" style="color:var(--ink-3);font-size:9px">${unit.lat.toFixed(5)}, ${unit.lng.toFixed(5)}</span></div>
+    </div>`;
+  }
+
+  const hpPct   = Math.max(0,Math.min(100,unit.hp/maxHp*100));
+  const ammoPct = Math.min(100,(unit.ammo/30)*100);
+  const hpColor = hpPct>60?'var(--green)':hpPct>30?'var(--amber)':'var(--red)';
+  const isHold  = (unit.stance??'hold')==='hold';
+  const isAirF  = isAirUnit(unit);
+  const fuelPct = isAirF ? Math.min(100,(unit.fuel/MAX_FUEL)*100) : 0;
+  const fuelCls = isAirF ? fuelClass(unit.fuel) : '';
+  const fuelColor = fuelPct>30?'var(--fuel-full)':fuelPct>20?'var(--fuel-warn)':'var(--fuel-crit)';
+
+  const fuelRow = isAirF ? `
+    <div class="pop-row" style="margin-top:2px">
+      <span class="pop-key">燃油</span>
+      <span class="pop-val" style="color:${fuelColor}">${unit.fuel} / ${MAX_FUEL}${unit.returning?' ↩返航中':''}</span>
+    </div>
+    <div class="pop-bar"><div class="pop-bar-fill ${fuelCls}" style="width:${fuelPct}%;background:${fuelColor}"></div></div>` : '';
+
+  const returnBtn = isAirF ? `<button class="return-btn" onclick="manualReturn('${unit.id}')">✈ 立即返航</button>` : '';
+
+  return `<div class="pop-inner">
+    <div class="pop-title ${cls}">${getUnitIcon(unit.type)} ${unit.faction} · ${unit.type}</div>
+    <div class="pop-row"><span class="pop-key">ID</span><span class="pop-val">${unit.id}</span></div>
+    <div class="pop-row"><span class="pop-key">生命值</span><span class="pop-val" style="color:${hpColor}">${unit.hp} / ${maxHp}</span></div>
+    <div class="pop-bar"><div class="pop-bar-fill hp" style="width:${hpPct}%;background:${hpColor}"></div></div>
+    <div class="pop-row"><span class="pop-key">彈藥</span><span class="pop-val" style="color:var(--amber)">${unit.ammo} / 30</span></div>
+    <div class="pop-bar"><div class="pop-bar-fill ammo" style="width:${ammoPct}%"></div></div>
+    ${fuelRow}
+    <div class="pop-row"><span class="pop-key">射程</span><span class="pop-val">${unit.max_range_km} km</span></div>
+    <div class="pop-row"><span class="pop-key">速度</span><span class="pop-val">${unit.speed_km_h} km/h</span></div>
+    ${returnBtn}
+    <div class="stance-toggle">
+      <button class="stance-btn hold-btn${isHold?' active':''}" onclick="setStance('${unit.id}','hold')">🟢 待命</button>
+      <button class="stance-btn free-btn${!isHold?' active':''}" onclick="setStance('${unit.id}','free')">🔴 自由開火</button>
+    </div>
+    <button onclick="removeUnit('${unit.id}')"
+      style="width:100%;margin-top:6px;padding:6px 8px;border-radius:3px;cursor:pointer;
+             font-family:var(--font-mono);font-size:10px;font-weight:700;
+             border:2px solid var(--red);background:var(--red-bg);color:var(--red);
+             transition:all .15s;"
+      onmouseover="this.style.background='var(--red)';this.style.color='#fff'"
+      onmouseout="this.style.background='var(--red-bg)';this.style.color='var(--red)'">
+      <i class="fa-solid fa-trash"></i> 移除單位
+    </button>
+  </div>`;
+}
+
+//移除單位
+async function removeUnit(unitId){
+  if(!confirm(`確定移除單位 [${unitId.slice(-6)}]？`)) return;
+  try{
+    const res=await fetch(`${API_BASE_URL}/api/battle/unit/${encodeURIComponent(unitId)}`,{method:'DELETE'});
+    if(!res.ok) throw new Error((await res.json()).detail??`HTTP ${res.status}`);
+    toast('terr','🗑 單位移除',`[${unitId.slice(-6)}] 已從戰場移除`);
+    Object.values(markers).forEach(m=>{ if(m._unitId===unitId) m.closePopup(); });
+  }catch(e){ toast('terr','移除失敗',e.message); }
+}
+// ── 返航 & 交戰規則 ──────────────────────────────
+async function manualReturn(unitId){
+  try{
+    const res=await fetch(`${API_BASE_URL}/api/return`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_id:unitId})});
+    const d=await res.json();
+    if(!res.ok) throw new Error(d.detail??`HTTP ${res.status}`);
+    toast('fuel-return','✈ 手動返航',`[${unitId.slice(-6)}] ${d.msg}`);
+    const m=markers[unitId]; if(m?._unit){ m._unit.returning=true; m.setIcon(makeMarker(m._unit,false,false)); m.setPopupContent(makePopup(m._unit)); }
+  }catch(e){ toast('terr','返航失敗',e.message); }
+}
+
+async function setStance(unitId,stance){
+  try{
+    await fetch(`${API_BASE_URL}/api/stance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_id:unitId,stance})});
+    const m=markers[unitId]; if(m?._unit){ m._unit.stance=stance; m.setIcon(makeMarker(m._unit,false,false)); m.setPopupContent(makePopup(m._unit)); }
+    toast('supply',stance==='free'?'🔴 自由開火':'🟢 待命',`[${unitId.slice(-6)}] 交戰規則已變更`);
+  }catch(e){ toast('terr','設定失敗',e.message); }
+}
+
+// ── 開火線 & 爆炸 ────────────────────────────────
+function drawFireLine(sLat,sLng,tLat,tLng,isCounter){
+  const color=isCounter?'#b05800':'#c41a00';
+  const line=L.polyline([[sLat,sLng],[tLat,tLng]],{color,weight:isCounter?1.5:2.5,opacity:.9,dashArray:isCounter?'3 4':null}).addTo(map);
+  setTimeout(()=>line.remove(),600);
+}
+function showExplosion(lat,lng){
+  const m=L.marker([lat,lng],{icon:L.divIcon({html:'<div class="explosion-marker" style="font-size:28px;color:#c41a00;"><i class="fa-solid fa-explosion"></i></div>',className:'',iconSize:[40,40],iconAnchor:[20,20]}),interactive:false,zIndexOffset:9999}).addTo(map);
+  setTimeout(()=>m.remove(),900);
+}
+
+// ── 平滑動畫系統 ─────────────────────────────────
+const unitAnim={},routeLines={};
+const KM_PER_DEG=111.0;
+let rafId=null;
+function degDist(la1,ln1,la2,ln2){const dl=la2-la1,dln=(ln2-ln1)*Math.cos((la1+la2)/2*Math.PI/180);return Math.sqrt(dl*dl+dln*dln)*KM_PER_DEG;}
+function startRenderLoop(){
+  if(rafId!==null)return;
+  function loop(ts){
+    let any=false;
+    for(const id of Object.keys(unitAnim)){
+      const m=markers[id],a=unitAnim[id]; if(!m||!a)continue;
+      const wps=a.waypoints;
+      if(!wps||wps.length<2||a.wpIndex>=wps.length-1){if(wps?.length){const l=wps[wps.length-1];a.lat=l[0];a.lng=l[1];m.setLatLng([a.lat,a.lng]);}continue;}
+      const dt=Math.min((ts-(a.lastTs??ts))/1000,.1); a.lastTs=ts;
+      let budget=a.speedKmh*dt/3600; any=true;
+      while(budget>0&&a.wpIndex<wps.length-1){
+        const nxt=wps[a.wpIndex+1],dist=degDist(a.lat,a.lng,nxt[0],nxt[1]);
+        if(dist<1e-6){a.wpIndex++;a.lat=nxt[0];a.lng=nxt[1];continue;}
+        if(budget>=dist){budget-=dist;a.wpIndex++;a.lat=nxt[0];a.lng=nxt[1];}
+        else{const f=budget/dist;a.lat+=(nxt[0]-a.lat)*f;a.lng+=(nxt[1]-a.lng)*f;budget=0;}
+      }
+      m.setLatLng([a.lat,a.lng]);
+    }
+    rafId=any?requestAnimationFrame(loop):null;
+  }
+  rafId=requestAnimationFrame(loop);
+}
+function startPathAnim(id,waypoints,speedKmh){
+  const m=markers[id]; if(!m||!waypoints||waypoints.length<2)return;
+  const cur=m.getLatLng();
+  unitAnim[id]={waypoints,wpIndex:0,lat:cur.lat,lng:cur.lng,speedKmh,lastTs:null};
+  startRenderLoop();
+}
+function clearUnitAnim(id){ delete unitAnim[id]; if(routeLines[id]){routeLines[id].remove();delete routeLines[id];} }
+function drawWaypointLine(id,waypoints,color,isDirect=false){
+  if(routeLines[id])routeLines[id].remove();
+  if(!waypoints||waypoints.length<2)return;
+  routeLines[id]=L.polyline(waypoints,{color,weight:isDirect?1.5:2.5,opacity:.45,dashArray:isDirect?'4 6':null}).addTo(map);
+}
+
+// ── Toast ────────────────────────────────────────
+function toast(type,title,msg,sub=''){
+  const icons={
+    attack:      '<i class="fa-solid fa-explosion"></i>',
+    supply:      '<i class="fa-solid fa-box-open"></i>',
+    terr:        '<i class="fa-solid fa-triangle-exclamation"></i>',
+    counter:     '<i class="fa-solid fa-rotate-left"></i>',
+    destroy:     '<i class="fa-solid fa-skull"></i>',
+    'fuel-warn': '<i class="fa-solid fa-gas-pump"></i>',
+    'fuel-return':'<i class="fa-solid fa-plane-arrival"></i>',
+    'fuel-crash':'<i class="fa-solid fa-skull"></i>',
+    refueled:    '<i class="fa-solid fa-check-circle"></i>',
+  };
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  el.innerHTML=`<div class="t-icon">${icons[type]??'<i class="fa-solid fa-bullhorn"></i>'}</div><div><div class="t-title">${title}</div><div class="t-msg">${msg}</div>${sub?`<div class="t-sub">${sub}</div>`:''}</div>`;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>{el.classList.add('t-out');setTimeout(()=>el.remove(),250);},4500);
+}
+
+// ── 戰鬥日誌 ────────────────────────────────────
+let lastSeenTick=0,logTotalCount=0,logDestroyCount=0;
+// 記錄「本次返航已顯示補油通知」的單位，飛機離開機場後才重置
+const refuelShown = new Set();
+function getTypeIcon(n){
+  const d=unitTypes[n]?.domain;
+  return DOMAIN_ICON[d]??'<i class="fa-solid fa-crosshairs"></i>';
+}
+function renderCombatEvent(ev){
+  const logEl=document.getElementById('combat-log-list');
+  const row=document.createElement('div');
+  const isCrash=(ev.src_id===ev.tgt_id);   // 墜毀：src 和 tgt 相同
+  const isC=ev.is_counter, isD=ev.destroyed;
+
+  row.dataset.search=[ev.src_faction,ev.src_type,ev.src_id,
+                      ev.tgt_faction,ev.tgt_type,ev.tgt_id].join(' ').toLowerCase();
+
+  if(isCrash){
+    // 墜毀事件特殊格式
+    row.className='cl-row cl-destroyed-row';
+    const fCls=ev.src_faction==='國軍'?'cl-src-roc':'cl-src-pla';
+    row.innerHTML=`
+      <div class="cl-icon"><i class="fa-solid fa-plane-slash" style="color:#c41a00"></i></div>
+      <div class="cl-main">
+        <div class="cl-header"><span class="cl-tick">T${ev.tick}</span><span class="cl-badge auto" style="background:#fde5e0;color:#c41a00">墜毀</span></div>
+        <div class="cl-parties"><span class="${fCls}">${getTypeIcon(ev.src_type)} ${ev.src_faction} ${ev.src_type}</span>
+          <span style="color:var(--ink-3)"> [${ev.src_id.slice(-6)}] 燃油耗盡</span></div>
+        <div class="cl-destroy-badge"><i class="fa-solid fa-skull"></i> 已摧毀</div>
+      </div>`;
+    logEl.insertBefore(row,logEl.firstChild);
+    while(logEl.children.length>200)logEl.removeChild(logEl.lastChild);
+    logTotalCount++; logDestroyCount++;
+    document.getElementById('log-count').textContent=logTotalCount;
+    document.getElementById('log-destroy-count').textContent=logDestroyCount;
+    applyLogSearch();
+    return;
+  }
+
+  // 一般戰鬥事件
+  row.className=['cl-row',isD?'cl-destroyed-row':'',isC?'cl-counter-row':''].filter(Boolean).join(' ');
+  const sC=ev.src_faction==='國軍'?'cl-src-roc':'cl-src-pla';
+  const tC=ev.tgt_faction==='國軍'?'cl-src-roc':'cl-src-pla';
+  const si=getTypeIcon(ev.src_type),ti=getTypeIcon(ev.tgt_type);
+  const maxHp=ev.tgt_max_hp||100, hpPct=Math.max(0,Math.min(100,ev.tgt_hp/maxHp*100));
+  const hpC=hpPct>60?'healthy':hpPct>25?'damaged':'critical';
+  const badge=isC?'<span class="cl-badge counter">反擊</span>':'<span class="cl-badge auto">自動</span>';
+  const db=isD?`<div class="cl-destroy-badge"><i class="fa-solid fa-skull"></i> 已摧毀 ${ti} ${ev.tgt_type}</div>`:'';
+  const evIcon=isD?'<i class="fa-solid fa-explosion"></i>'
+    :isC?'<i class="fa-solid fa-rotate-left"></i>'
+        :'<i class="fa-solid fa-crosshairs"></i>';
+  row.innerHTML=`<div class="cl-icon">${evIcon}</div>
+    <div class="cl-main">
+      <div class="cl-header"><span class="cl-tick">T${ev.tick}</span>${badge}</div>
+      <div class="cl-parties"><span class="${sC}">${si} ${ev.src_faction} ${ev.src_type}</span>
+        <span style="color:var(--ink-3)"> [${ev.src_id.slice(-6)}] → </span>
+        <span class="${tC}">${ti} ${ev.tgt_faction} ${ev.tgt_type}</span>
+        <span style="color:var(--ink-3)"> [${ev.tgt_id.slice(-6)}]</span></div>
+      <div class="cl-damage-bar"><span class="cl-dmg-num">-${ev.damage}</span>
+        <div class="cl-hp-track"><div class="cl-hp-fill ${hpC}" style="width:${hpPct}%"></div></div>
+        <span class="cl-hp-text">${ev.tgt_hp}/${maxHp}</span></div>
+      ${db}
+    </div>`;
+  logEl.insertBefore(row,logEl.firstChild);
+  while(logEl.children.length>200)logEl.removeChild(logEl.lastChild);
+  logTotalCount++; if(isD)logDestroyCount++;
+  document.getElementById('log-count').textContent=logTotalCount;
+  document.getElementById('log-destroy-count').textContent=logDestroyCount;
+  applyLogSearch();
+}
+function applyLogSearch(){
+  const q=(document.getElementById('log-search')?.value??'').toLowerCase().trim();
+  document.querySelectorAll('#combat-log-list .cl-row').forEach(r=>{
+    r.classList.toggle('cl-hidden',q!==''&&!r.dataset.search.includes(q));
+  });
+}
+document.getElementById('log-search').addEventListener('input',applyLogSearch);
+document.getElementById('btn-clear-log').addEventListener('click',()=>{
+  document.getElementById('combat-log-list').innerHTML='';
+  logTotalCount=0;logDestroyCount=0;
+  document.getElementById('log-count').textContent=0;
+  document.getElementById('log-destroy-count').textContent=0;
+});
+document.getElementById('btn-export-log').addEventListener('click',()=>{
+  const rows=[...document.querySelectorAll('#combat-log-list .cl-row')].map(r=>r.dataset.search).join('\n');
+  navigator.clipboard.writeText(rows).then(()=>toast('supply','已複製','戰鬥紀錄已複製到剪貼板'),()=>toast('terr','複製失敗','請手動複製'));
+});
+
+async function pollCombatLog(){
+  try{
+    const res=await fetch(`${API_BASE_URL}/api/combat-log?since_tick=${lastSeenTick}`);
+    const data=await res.json();
+    if(data.events?.length){
+      data.events.forEach(ev=>{
+        drawFireLine(ev.src_lat,ev.src_lng,ev.tgt_lat,ev.tgt_lng,ev.is_counter);
+        if(ev.destroyed) showExplosion(ev.tgt_lat,ev.tgt_lng);
+        if(ev.destroyed) toast('destroy','💥 單位摧毀',`${ev.src_faction} [${ev.src_id.slice(-6)}] 摧毀 ${ev.tgt_faction} ${ev.tgt_type} [${ev.tgt_id.slice(-6)}]`,`傷害 ${ev.damage}${ev.is_counter?' ↩反擊':''}`);
+        renderCombatEvent(ev);
+      });
+    }
+    // 燃油事件
+    const fres=await fetch(`${API_BASE_URL}/api/fuel-log?since_tick=${lastSeenTick}`);
+    const fdata=await fres.json();
+    if(fdata.events?.length){
+      fdata.events.forEach(fe=>{
+        const icon={
+          warn:        '<i class="fa-solid fa-gas-pump"></i>',
+          auto_return: '<i class="fa-solid fa-plane-arrival"></i>',
+          refueled:    '<i class="fa-solid fa-check-circle"></i>',
+          crashed:     '<i class="fa-solid fa-skull"></i>',
+        }[fe.event]??'<i class="fa-solid fa-triangle-exclamation"></i>';
+        const type={warn:'fuel-warn',auto_return:'fuel-return',refueled:'refueled',crashed:'fuel-crash'}[fe.event]??'terr';
+        const titles={warn:'低燃油警告',auto_return:'自動返航',refueled:'補油完畢',crashed:'飛機墜毀'};
+
+        // 補油完畢：同一單位同一次返航只顯示一次
+        if(fe.event==='refueled'){
+          if(refuelShown.has(fe.unit_id)) return;
+          refuelShown.add(fe.unit_id);
+        }
+        // 飛機離開機場開始消耗燃油時，重置已顯示旗標
+        if(fe.event==='warn' || fe.event==='auto_return'){
+          refuelShown.delete(fe.unit_id);
+        }
+        // 墜毀時也清除
+        if(fe.event==='crashed'){
+          refuelShown.delete(fe.unit_id);
+        }
+        toast(type,`${icon} ${titles[fe.event]??fe.event}`,
+          `${fe.faction} ${fe.unit_type} [${fe.unit_id.slice(-6)}]`,
+          `燃油 ${fe.fuel}/${MAX_FUEL}`);
+        if(fe.event==='crashed') showExplosion(fe.lat,fe.lng);
+      });
+    }
+    lastSeenTick=data.current_tick;
+  }catch(_){}
+}
+
+// ── 狀態同步 ─────────────────────────────────────
+const markers={};
+function applyState(data){
+  const units=data.units??[];
+  const seen=new Set();
+  let rocCnt=0,plaCnt=0;
+  const listEl=document.getElementById('unit-list');
+  listEl.innerHTML='';
+
+  units.forEach(unit=>{
+    seen.add(unit.id);
+    const isROC=unit.faction==='國軍';
+    const isSel=selectedUnit&&selectedUnit.id===unit.id;
+    const isActS=actionSource&&actionSource.id===unit.id;
+    const isActT=actionMode&&actionSource&&!isActS;
+    const isMoving=unit.target_lat!=null;
+    const isFree=unit.stance==='free';
+    const isAP=unit.is_airport;
+    if(isROC)rocCnt++;else plaCnt++;
+
+    const{lat:nl,lng:ng}=unit;
+
+    if(markers[unit.id]){
+      const m=markers[unit.id];
+      if(!unitAnim[unit.id])m.setLatLng([nl,ng]);
+      m.setIcon(makeMarker(unit,isSel||isActS,isActT));
+      m._unit=unit;
+    }else{
+      const m=L.marker([nl,ng],{icon:makeMarker(unit,isSel||isActS,isActT)})
+        .bindPopup(makePopup(unit),{maxWidth:280,className:''}).addTo(map);
+      m._unit=unit;m._unitId=unit.id;
+      m.on('click',ev=>{
+        L.DomEvent.stopPropagation(ev);
+        if(actionMode)onActionClick(unit.id);
+        else if(moveMode&&!isAP)onMoveClick(unit.id);
+        else{if(!isAP)showRangeCircle(m._unit);m.setPopupContent(makePopup(m._unit));m.openPopup();}
+      });
+      markers[unit.id]=m;
+    }
+
+    if(!unit.target_lat&&unitAnim[unit.id]){clearUnitAnim(unit.id);markers[unit.id]?.setLatLng([nl,ng]);}
+    if(markers[unit.id].isPopupOpen())markers[unit.id].setPopupContent(makePopup(unit));
+
+    // 側欄列表
+    const cls=isROC?'roc':'pla';
+    const ut=unitTypes[unit.type]??{};
+    const maxHp=ut.hp??100;
+    const hpPct=Math.max(0,Math.min(100,unit.hp/maxHp*100));
+    const ammoPct=Math.min(100,(unit.ammo/30)*100);
+    const fuelPct=isAirUnit(unit)?Math.min(100,(unit.fuel/MAX_FUEL)*100):null;
+    const fc=fuelPct!==null?fuelClass(unit.fuel):'';
+    const isLowFuel=fuelPct!==null&&fuelPct<=30;
+
+    const row=document.createElement('div');
+    row.className=['urow',
+      (isAP?'airport':''),
+      (!isAP&&(isSel||isActS)?'act-src':''),
+      (!isAP&&isActT?'act-tgt':''),
+      (!isAP&&isMoving?'moving':''),
+      (!isAP&&isFree?'free-fire':''),
+      (!isAP&&isLowFuel?'low-fuel':''),
+    ].filter(Boolean).join(' ');
+    row.dataset.id=unit.id;
+
+    const fuelBar=fuelPct!==null?`<div class="minibar"><div class="minibar-fill ${fc}" style="width:${fuelPct}%"></div></div>`:'';
+    const meta=isAP
+      ?`機場  HP ${unit.hp}`
+      :`HP ${unit.hp} | AMO ${unit.ammo}${fuelPct!==null?' | ⛽'+unit.fuel:''}${isFree?' | 🔴':''}${unit.returning?' | ↩返航':''}`;
+
+    row.innerHTML=`
+      <div class="ubadge ${cls}${isAP?' airport-badge':''}${isMoving&&!isAP?' moving':''}">
+        ${getUnitIcon(unit.type)}
+        ${!isAP?`<span class="stance-dot ${isFree?'free':'hold'}"></span>`:''}
+      </div>
+      <div class="urow-info">
+        <div class="urow-name">${unit.faction} ${unit.type} · ${unit.id.slice(-6)}</div>
+        <div class="urow-meta">${meta}</div>
+      </div>
+      <div class="ubars">
+        <div class="minibar"><div class="minibar-fill hp" style="width:${hpPct}%"></div></div>
+        ${!isAP?`<div class="minibar"><div class="minibar-fill ammo" style="width:${ammoPct}%"></div></div>`:''}
+        ${fuelBar}
+      </div>`;
+
+    row.addEventListener('click',()=>{
+      if(actionMode)onActionClick(unit.id);
+      else if(moveMode&&!isAP)onMoveClick(unit.id);
+      else{map.panTo([unit.lat,unit.lng]);if(!isAP)showRangeCircle(unit);markers[unit.id]?.openPopup();}
+    });
+    listEl.appendChild(row);
+  });
+
+  Object.keys(markers).forEach(id=>{
+    if(!seen.has(id)){markers[id].remove();delete markers[id];clearUnitAnim(id);}
+  });
+  document.getElementById('cnt-roc').textContent=rocCnt;
+  document.getElementById('cnt-pla').textContent=plaCnt;
+  document.getElementById('cnt-total').textContent=units.length;
+  if(data.tick!=null)document.getElementById('tick-counter').textContent=`TICK ${data.tick}`;
+}
+
+async function syncState(){
+  const dot=document.getElementById('sync-dot'),label=document.getElementById('sync-label');
+  try{
+    const res=await fetch(`${API_BASE_URL}/api/state`);
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    applyState(await res.json());
+    dot.className='';label.textContent='LIVE';
+  }catch(e){
+    dot.className='err';label.textContent='ERR';
+  }
+}
+
+// ── 模式管理 ─────────────────────────────────────
+let deployMode=false,moveMode=false,actionMode=false;
+let selectedUnit=null,awaitingTarget=false,actionSource=null;
+function setMsg(id,cls,txt){const el=document.getElementById(id);el.className=`msg ${cls}`;el.textContent=txt;}
+function setSteps(s1,s2,s3){[['step1',s1],['step2',s2],['step3',s3]].forEach(([id,s])=>{document.getElementById(id).className=`step ${s}`;});}
+function exitAll(){
+  deployMode=moveMode=actionMode=false;
+  selectedUnit=awaitingTarget=actionSource=null;
+  document.body.classList.remove('deploy-mode','move-mode','action-mode');
+  document.getElementById('aim-xhair').style.display=document.getElementById('move-xhair').style.display='none';
+  document.getElementById('btn-deploy').textContent='▶ 部署部隊';document.getElementById('btn-deploy').classList.remove('armed');
+  document.getElementById('btn-move').textContent='⊙ 選取並移動';document.getElementById('btn-move').classList.remove('armed');
+  document.getElementById('btn-action').textContent='⚔ 攻擊 / 補給';document.getElementById('btn-action').classList.remove('armed');
+  document.getElementById('move-card').classList.remove('show','roc','pla');
+  document.getElementById('act-card').classList.remove('show','roc','pla');
+  setSteps('','','');
+  Object.values(markers).forEach(m=>{if(m._unit)m.setIcon(makeMarker(m._unit,false,false));});
+}
+document.addEventListener('mousemove',e=>{
+  const ae=document.getElementById('aim-xhair'),me=document.getElementById('move-xhair');
+  if(deployMode)Object.assign(ae.style,{left:e.clientX+'px',top:e.clientY+'px',display:'block'});
+  if(moveMode&&selectedUnit&&awaitingTarget)Object.assign(me.style,{left:e.clientX+'px',top:e.clientY+'px',display:'block'});
+});
+
+// ── 部署 ─────────────────────────────────────────
+document.getElementById('btn-deploy').addEventListener('click',()=>{
+  if(deployMode){exitAll();setMsg('msg-deploy','','已取消');return;}
+  exitAll();deployMode=true;document.body.classList.add('deploy-mode');
+  document.getElementById('btn-deploy').textContent='✕ 取消部署';
+  document.getElementById('btn-deploy').classList.add('armed');
+  setMsg('msg-deploy','info','點擊地圖選擇部署位置…');
+});
+
+// ── 移動 ─────────────────────────────────────────
+document.getElementById('btn-move').addEventListener('click',()=>{
+  if(moveMode){exitAll();setMsg('msg-move','','已取消');return;}
+  exitAll();moveMode=true;document.body.classList.add('move-mode');
+  document.getElementById('btn-move').textContent='✕ 取消移動';
+  document.getElementById('btn-move').classList.add('armed');
+  setMsg('msg-move','info','點擊地圖上的單位以選取（機場除外）…');
+});
+function onMoveClick(unitId){
+  if(!moveMode)return;
+  const unit=markers[unitId]?._unit; if(!unit||unit.is_airport)return;
+  if(!selectedUnit){
+    selectedUnit=unit;awaitingTarget=true;
+    Object.values(markers).forEach(m=>{if(m._unit)m.setIcon(makeMarker(m._unit,m._unit.id===unitId,false));});
+    const card=document.getElementById('move-card');
+    card.classList.add('show',unit.faction==='國軍'?'roc':'pla');
+    document.getElementById('move-card-name').textContent=`${unit.faction} ${getUnitIcon(unit.type)} ${unit.type} · ${unit.id}`;
+    document.getElementById('move-card-info').textContent=`HP ${unit.hp}  速度 ${unit.speed_km_h} km/h${isAirUnit(unit)?' ⛽'+unit.fuel:''}`;
+    setMsg('msg-move','info',`[${unit.id}] 已選取，點擊目標位置…`);
+  }
+}
+
+// ── 行動 ─────────────────────────────────────────
+document.getElementById('btn-action').addEventListener('click',()=>{
+  if(actionMode){exitAll();setMsg('msg-action','','已取消');return;}
+  exitAll();actionMode=true;document.body.classList.add('action-mode');
+  document.getElementById('btn-action').textContent='✕ 取消行動';
+  document.getElementById('btn-action').classList.add('armed');
+  setSteps('active','','');setMsg('msg-action','info','點擊地圖上的己方單位（來源）…');
+});
+
+async function onActionClick(unitId){
+  if(!actionMode)return;
+  const unit=markers[unitId]?._unit; if(!unit)return;
+
+  // ── 步驟 1：選來源 ──────────────────────────────
+  if(!actionSource){
+    actionSource=unit;
+    Object.values(markers).forEach(m=>{if(!m._unit)return;m.setIcon(makeMarker(m._unit,m._unit.id===unitId,m._unit.id!==unitId));});
+    const card=document.getElementById('act-card');
+    card.classList.add('show',unit.faction==='國軍'?'roc':'pla');
+    document.getElementById('act-card-name').textContent=`${unit.faction} ${getUnitIcon(unit.type)} ${unit.type} · ${unit.id}`;
+    document.getElementById('act-card-info').textContent=SUPPLY_TYPES.has(unit.type)
+      ? '補給兵 → 點擊己方單位補給'
+      : `HP ${unit.hp} → 點擊敵方：追擊並持續開火`;
+    setSteps('done','active','');setMsg('msg-action','info',`來源 [${unit.id}]，點擊目標…`);
+    return;
+  }
+
+  // 點自己 → 重選
+  if(actionSource.id===unitId){
+    actionSource=null;
+    Object.values(markers).forEach(m=>{if(m._unit)m.setIcon(makeMarker(m._unit,false,false));});
+    document.getElementById('act-card').classList.remove('show','roc','pla');
+    setSteps('active','','');setMsg('msg-action','info','已重置，請重新點擊來源…');
+    return;
+  }
+
+  const src=actionSource, tgt=unit;
+  const sameTeam   = src.faction===tgt.faction;
+  const isSupplier = SUPPLY_TYPES.has(src.type);
+
+  // ── 步驟 2：判斷行動類型 ────────────────────────
+  if(sameTeam && isSupplier){
+    // 補給
+    exitAll();setMsg('msg-action','warn','補給中…');setSteps('done','done','active');
+    try{
+      const res=await fetch(`${API_BASE_URL}/api/action`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({source_id:src.id,target_id:tgt.id,action_type:'supply'})});
+      const data=await res.json();
+      if(data.status==='error'){alert(`⚠ ${data.message}`);toast('terr','指令被拒',data.message);setSteps('','','');return;}
+      toast('supply','手動補給',`[${src.id.slice(-6)}] 補給 [${tgt.id.slice(-6)}]`,`+${data.ammo_given} 彈藥`);
+      setSteps('done','done','done');setTimeout(()=>setSteps('','',''),2000);
+    }catch(e){toast('terr','通訊錯誤',e.message);setSteps('','','');}
+
+  } else if(!sameTeam){
+    // 攻擊：發出追擊指令，移動靠近後自動持續開火
+    exitAll();setMsg('msg-action','warn','傳送追擊指令…');setSteps('done','done','active');
+    try{
+      const res=await fetch(`${API_BASE_URL}/api/engage`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({unit_id:src.id,target_id:tgt.id})});
+      const data=await res.json();
+      if(!res.ok){alert(`⚠ ${data.detail??'失敗'}`);setSteps('','','');return;}
+
+      // 前端動畫：沿路線走
+      const color    = src.faction==='國軍'?'#004fc4':'#c41a00';
+      const isDirect = (unitTypes[src.type]?.domain??src.domain??'land')!=='land';
+      const speedKmh = unitTypes[src.type]?.speed_km_h??src.speed_km_h??5;
+      if(data.waypoints){
+        drawWaypointLine(src.id, data.waypoints, color, isDirect);
+        startPathAnim(src.id, data.waypoints, speedKmh);
+      }
+
+      toast('attack','⚔ 追擊指令',
+        `[${src.id.slice(-6)}] 追擊 [${tgt.id.slice(-6)}]`,
+        `距離 ${data.dist_km} km，抵達射程後自動開火`);
+      setSteps('done','done','done');
+      setMsg('msg-action','info','下達「待命」指令可停止追擊');
+      setTimeout(()=>setMsg('msg-action','','選取己方單位後點擊目標'),5000);
+
+    }catch(e){toast('terr','通訊錯誤',e.message);setSteps('','','');}
+
+  } else {
+    toast('terr','無效行動',`${src.type} 無法對己方補給`);
+    setMsg('msg-action','error','非補給兵無法對己方操作');
+    setTimeout(()=>setMsg('msg-action','info',`來源 [${src.id}]，點擊目標…`),2000);
+  }
+}
+
+// ── 地圖點擊 ─────────────────────────────────────
+map.on('click',async e=>{
+  const lat=parseFloat(e.latlng.lat.toFixed(6)),lng=parseFloat(e.latlng.lng.toFixed(6));
+
+  if(deployMode){
+    const faction=document.getElementById('sel-faction').value,type=document.getElementById('sel-type').value;
+    exitAll();setMsg('msg-deploy','warn',`傳送 ${faction} ${type}…`);
+    try{
+      const res=await fetch(`${API_BASE_URL}/api/deploy`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({faction,type,lat,lng})});
+      if(!res.ok)throw new Error((await res.json().catch(()=>({}))).detail??`HTTP ${res.status}`);
+      const d=await res.json();
+      const label=d.is_airport?'機場':type;
+      setMsg('msg-deploy','success',`✔ 部署成功 ${faction} ${label} [${d.id}]`);
+      setTimeout(()=>setMsg('msg-deploy','','選擇陣營與兵種後點擊地圖'),4000);
+    }catch(e){setMsg('msg-deploy','error',`✘ ${e.message}`);setTimeout(()=>setMsg('msg-deploy','','選擇陣營與兵種後點擊地圖'),5000);}
+    return;
+  }
+
+  if(moveMode&&selectedUnit&&awaitingTarget){
+    const unit=selectedUnit; exitAll();setMsg('msg-move','warn','查詢路線中…');
+    try{
+      const res=await fetch(`${API_BASE_URL}/api/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_id:unit.id,target_lat:lat,target_lng:lng})});
+      if(!res.ok)throw new Error((await res.json().catch(()=>({}))).detail??`HTTP ${res.status}`);
+      const d=await res.json();
+      const color=unit.faction==='國軍'?'#004fc4':'#c41a00';
+      const isDirect=(unitTypes[unit.type]?.domain??unit.domain??'land')!=='land';
+      const speedKmh=unitTypes[unit.type]?.speed_km_h??unit.speed_km_h??5;
+      if(d.waypoints){drawWaypointLine(unit.id,d.waypoints,color,isDirect);startPathAnim(unit.id,d.waypoints,speedKmh);}
+      setMsg('msg-move','success',`✔ 移動指令送出（${d.waypoints?.length??2} 個路線點）`);
+      setTimeout(()=>setMsg('msg-move','','點擊地圖上的單位以選取'),3000);
+    }catch(e){setMsg('msg-move','error',`✘ ${e.message}`);setTimeout(()=>setMsg('msg-move','','點擊地圖上的單位以選取'),4000);}
+    return;
+  }
+});
+
+// ── 圖示選擇器 ──────────────────────────────────
+function initIconPicker(){
+  const picker = document.getElementById('icon-picker');
+  picker.innerHTML = '';
+  Object.entries(SVG_ICONS).forEach(([key, ico]) => {
+    const opt = document.createElement('div');
+    opt.className  = 'icon-option';
+    opt.dataset.key = key;
+    opt.innerHTML  = `${ico.svg}<span>${ico.label}</span>`;
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('.icon-option').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      document.getElementById('d-icon').value = key;
+    });
+    picker.appendChild(opt);
+  });
+  // 預設選第一個
+  picker.firstElementChild?.classList.add('selected');
+  document.getElementById('d-icon').value = Object.keys(SVG_ICONS)[0];
+}
+
+function setIconPickerValue(key){
+  document.querySelectorAll('.icon-option').forEach(o => {
+    o.classList.toggle('selected', o.dataset.key === key);
+  });
+  document.getElementById('d-icon').value = key ?? Object.keys(SVG_ICONS)[0];
+}
+async function loadUnitTypes(){
+  try{const res=await fetch(`${API_BASE_URL}/api/units`);unitTypes=await res.json();renderDesignerList();populateTypeDropdown();}
+  catch(e){console.error('[units]',e.message);}
+}
+function populateTypeDropdown(){
+  const sel=document.getElementById('sel-type');sel.innerHTML='';
+  Object.values(unitTypes).forEach(ut=>{
+    const o=document.createElement('option');o.value=ut.name;
+    const isAP=ut.domain==='air'&&ut.speed_km_h===0;
+    o.textContent=`${isAP?'[機場]':(unitTypes[ut.name]?.domain?.[0]?.toUpperCase()??'?')} ${ut.name}`;
+    sel.appendChild(o);
+  });
+}
+function renderDesignerList(){
+  const c=document.getElementById('designer-list');c.innerHTML='';
+  Object.values(unitTypes).forEach(ut=>{
+    const row=document.createElement('div');row.className='drow';row.dataset.name=ut.name;
+    const isAP=ut.domain==='air'&&ut.speed_km_h===0;
+    const fuelInfo = ut.fuel_burn_per_tick>0
+      ? ` · ⛽${ut.fuel_burn_per_tick}/s`
+      : (isAP && ut.refuel_per_tick>0 ? ` · 補油${ut.refuel_per_tick}/s 半徑${ut.refuel_range_km}km` : '');
+    row.innerHTML=`<div class="drow-icon">${isAP?'<i class="fa-solid fa-flag"></i>':DOMAIN_ICON[ut.domain]??'<i class="fa-solid fa-circle-question"></i>'}</div>
+      <div class="drow-info"><div class="drow-name">${ut.name}${isAP?' (機場)':''}</div>
+      <div class="drow-meta">HP ${ut.hp} · ATK ${ut.attack} · SPD ${ut.speed_km_h}km/h${fuelInfo}</div></div>
+      <span class="tag ${ut.domain}">${ut.domain}</span>
+      <button class="del-btn" data-name="${ut.name}" title="刪除">×</button>`;
+    row.addEventListener('click',ev=>{if(ev.target.classList.contains('del-btn'))return;loadFormFromUnit(ut);document.querySelectorAll('.drow').forEach(r=>r.classList.remove('active'));row.classList.add('active');});
+    row.querySelector('.del-btn').addEventListener('click',async ev=>{
+      ev.stopPropagation();if(!confirm(`確定刪除「${ut.name}」？`))return;
+      await fetch(`${API_BASE_URL}/api/units/${encodeURIComponent(ut.name)}`,{method:'DELETE'});await loadUnitTypes();
+    });
+    c.appendChild(row);
+  });
+}
+function loadFormFromUnit(ut){
+  document.getElementById('d-name').value        = ut.name;
+  document.getElementById('d-domain').value      = ut.domain;
+  document.getElementById('d-hp').value          = ut.hp;
+  document.getElementById('d-attack').value      = ut.attack;
+  document.getElementById('d-range').value       = ut.max_range_km;
+  document.getElementById('d-speed').value       = ut.speed_km_h;
+  document.getElementById('d-ammo').value        = ut.ammo_cost??1;
+  document.getElementById('d-burn').value        = ut.fuel_burn_per_tick??0;
+  document.getElementById('d-refuel-range').value= ut.refuel_range_km??0;
+  document.getElementById('d-refuel-rate').value = ut.refuel_per_tick??0;
+  document.getElementById('ch-land').checked     = (ut.can_hit??[]).includes('land');
+  document.getElementById('ch-air').checked      = (ut.can_hit??[]).includes('air');
+  document.getElementById('ch-sea').checked      = (ut.can_hit??[]).includes('sea');
+  document.getElementById('d-bonuses').value     = JSON.stringify(ut.bonuses??{});
+  // 還原圖示選擇
+  const iconKey = ut.icon ?? DEFAULT_ICON_MAP[ut.name] ?? 'infantry';
+  setIconPickerValue(iconKey);
+}
+document.getElementById('btn-clear-form').addEventListener('click',()=>{
+  ['d-name','d-hp','d-attack','d-range','d-speed','d-ammo','d-burn','d-refuel-range','d-refuel-rate']
+    .forEach(id=>document.getElementById(id).value='');
+  document.getElementById('d-domain').value='land';
+  document.getElementById('d-bonuses').value='{}';
+  document.getElementById('ch-land').checked=true;
+  document.getElementById('ch-air').checked=false;
+  document.getElementById('ch-sea').checked=false;
+  setIconPickerValue('infantry');   // 重置圖示選擇
+  setMsg('msg-designer','','');
+  document.querySelectorAll('.drow').forEach(r=>r.classList.remove('active'));
+});
+document.getElementById('btn-save-unit').addEventListener('click',async()=>{
+  const name=document.getElementById('d-name').value.trim();
+  if(!name){setMsg('msg-designer','error','請填寫兵種名稱');return;}
+  let bonuses={};
+  try{bonuses=JSON.parse(document.getElementById('d-bonuses').value||'{}');}catch{setMsg('msg-designer','error','JSON 格式錯誤');return;}
+  const can_hit=['land','air','sea'].filter(d=>document.getElementById(`ch-${d}`).checked);
+  const payload={name,bonuses,can_hit,
+    domain:       document.getElementById('d-domain').value,
+    hp:           parseInt(document.getElementById('d-hp').value)         ||100,
+    attack:       parseInt(document.getElementById('d-attack').value)     ||0,
+    max_range_km: parseFloat(document.getElementById('d-range').value)    ||0,
+    speed_km_h:   parseFloat(document.getElementById('d-speed').value)    ||0,
+    ammo_cost:    parseInt(document.getElementById('d-ammo').value)       ||0,
+    fuel_burn_per_tick:  parseFloat(document.getElementById('d-burn').value)         ||0,
+    refuel_range_km:     parseFloat(document.getElementById('d-refuel-range').value) ||0,
+    refuel_per_tick:     parseInt(document.getElementById('d-refuel-rate').value)    ||0,
+    icon:         document.getElementById('d-icon').value || 'infantry',
+  };
+  setMsg('msg-designer','warn','儲存中…');
+  try{
+    const res=await fetch(`${API_BASE_URL}/api/units`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    await loadUnitTypes();setMsg('msg-designer','success',`✔ 「${name}」已儲存`);
+  }catch(e){setMsg('msg-designer','error',`✘ ${e.message}`);}
+});
+
+// ── 存檔 / 重置 ───────────────────────────────────
+document.getElementById('btn-save').addEventListener('click',async()=>{
+  setMsg('msg-save','warn','存檔中…');
+  try{const d=await(await fetch(`${API_BASE_URL}/api/save`,{method:'POST'})).json();setMsg('msg-save','success',`✔ ${d.msg}`);setTimeout(()=>setMsg('msg-save','','每 10 秒自動存檔，重啟後還原'),3000);}
+  catch(e){setMsg('msg-save','error',`✘ ${e.message}`);}
+});
+document.getElementById('btn-reset').addEventListener('click',async()=>{
+  if(!confirm('確定清除所有部隊並重置戰場？'))return;
+  try{const d=await(await fetch(`${API_BASE_URL}/api/reset`,{method:'POST'})).json();setMsg('msg-save','success',`✔ ${d.msg}`);lastSeenTick=0;}
+  catch(e){setMsg('msg-save','error',`✘ ${e.message}`);}
+});
+
+// ── 時鐘 & 啟動 ───────────────────────────────────
+function updateClock(){document.getElementById('clock').textContent=new Date().toLocaleTimeString('zh-TW',{hour12:false});}
+setInterval(updateClock,1000);updateClock();
+(async()=>{
+  initIconPicker();   // 初始化圖示選擇器
+  await loadUnitTypes();
+  await syncState();
+  setInterval(syncState,1000);
+  setInterval(pollCombatLog,1000);
+})();
+
+// ── 音樂播放器 ─────────────────────────────────────
+(function(){
+  const audio    = document.getElementById('audio-player');
+  const btnPlay  = document.getElementById('mp-play');
+  const btnPrev  = document.getElementById('mp-prev');
+  const btnNext  = document.getElementById('mp-next');
+  const btnLoop  = document.getElementById('mp-loop');
+  const volSlider= document.getElementById('mp-vol');
+  const progress = document.getElementById('mp-progress');
+  const progFill = document.getElementById('mp-progress-fill');
+  const timeEl   = document.getElementById('mp-time');
+  const trackEl  = document.getElementById('mp-track-name');
+  const listEl   = document.getElementById('mp-playlist');
+  const urlInput = document.getElementById('mp-url-input');
+  const fileInput= document.getElementById('mp-file-input');
+  const toggle   = document.getElementById('music-toggle');
+  const player   = document.getElementById('music-player');
+
+  // 播放清單：[{ name, src, objectUrl? }]
+  let playlist   = JSON.parse(localStorage.getItem('mp_playlist') || '[]')
+                     .filter(t => !t.objectUrl);  // 本地 objectURL 重開後失效，自動清除
+  let current    = 0;
+  let loopMode   = false;
+
+  function savePlaylist(){
+    localStorage.setItem('mp_playlist', JSON.stringify(
+      playlist.map(t => ({ name: t.name, src: t.objectUrl ? '' : t.src }))
+              .filter(t => t.src)
+    ));
+  }
+
+  function fmt(sec){
+    const m=Math.floor(sec/60), s=Math.floor(sec%60);
+    return `${m}:${s.toString().padStart(2,'0')}`;
+  }
+
+  function renderList(){
+    listEl.innerHTML = '';
+    if(playlist.length === 0){
+      listEl.innerHTML = '<div style="padding:8px 7px;font-size:10px;color:var(--ink-3)">清單為空，請加入歌曲</div>';
+      return;
+    }
+    playlist.forEach((t, i) => {
+      const row = document.createElement('div');
+      row.className = 'mp-item' + (i === current ? ' playing' : '');
+      row.innerHTML = `<span class="mp-item-icon">${i===current?'▶':'🎵'}</span>
+        <span class="mp-item-name">${t.name}</span>
+        <span class="mp-item-del" data-i="${i}" title="移除">×</span>`;
+      row.addEventListener('click', e => {
+        if(e.target.dataset.i !== undefined) { removeTrack(+e.target.dataset.i); return; }
+        loadTrack(i); audio.play();
+      });
+      listEl.appendChild(row);
+    });
+  }
+
+  function loadTrack(i){
+    if(playlist.length === 0) return;
+    current = (i + playlist.length) % playlist.length;
+    audio.src = playlist[current].src;
+    trackEl.textContent = playlist[current].name;
+    btnPlay.textContent = '⏸';
+    renderList();
+  }
+
+  function removeTrack(i){
+    if(playlist[i].objectUrl) URL.revokeObjectURL(playlist[i].objectUrl);
+    playlist.splice(i, 1);
+    if(current >= playlist.length) current = 0;
+    savePlaylist();
+    renderList();
+    if(playlist.length === 0){ audio.src=''; trackEl.textContent='— 尚未選擇歌曲 —'; btnPlay.textContent='▶'; }
+    else loadTrack(current);
+  }
+
+  function addTrack(name, src, objectUrl=null){
+    playlist.push({ name, src, objectUrl });
+    savePlaylist();
+    renderList();
+    if(playlist.length === 1) loadTrack(0);
+  }
+
+  // 播放 / 暫停
+  btnPlay.addEventListener('click', () => {
+    if(playlist.length === 0) return;
+    if(audio.paused){ audio.play(); btnPlay.textContent='⏸'; }
+    else            { audio.pause(); btnPlay.textContent='▶'; }
+  });
+
+  btnPrev.addEventListener('click', () => { loadTrack(current - 1); audio.play(); });
+  btnNext.addEventListener('click', () => { loadTrack(current + 1); audio.play(); });
+
+  // 循環切換
+  btnLoop.addEventListener('click', () => {
+    loopMode = !loopMode;
+    btnLoop.classList.toggle('active', loopMode);
+    audio.loop = loopMode;
+  });
+
+  // 音量
+  audio.volume = +volSlider.value;
+  volSlider.addEventListener('input', () => { audio.volume = +volSlider.value; });
+
+  // 進度條
+  audio.addEventListener('timeupdate', () => {
+    if(!audio.duration) return;
+    const pct = audio.currentTime / audio.duration * 100;
+    progFill.style.width = pct + '%';
+    timeEl.textContent   = `${fmt(audio.currentTime)} / ${fmt(audio.duration)}`;
+  });
+
+  progress.addEventListener('click', e => {
+    if(!audio.duration) return;
+    const rect = progress.getBoundingClientRect();
+    audio.currentTime = (e.clientX - rect.left) / rect.width * audio.duration;
+  });
+
+  // 播完自動下一首
+  audio.addEventListener('ended', () => {
+    if(!loopMode) loadTrack(current + 1);
+    audio.play();
+  });
+
+  // 加入 URL
+  document.getElementById('mp-add-btn').addEventListener('click', () => {
+    const url = urlInput.value.trim();
+    if(!url) return;
+    const name = url.split('/').pop().split('?')[0] || url.slice(-30);
+    addTrack(name, url);
+    urlInput.value = '';
+  });
+  urlInput.addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('mp-add-btn').click(); });
+
+  // 加入本地檔案
+  document.getElementById('mp-file-btn').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => {
+    [...e.target.files].forEach(file => {
+      const objectUrl = URL.createObjectURL(file);
+      addTrack(file.name.replace(/\.[^.]+$/, ''), objectUrl, objectUrl);
+    });
+    fileInput.value = '';
+  });
+
+  // 顯示 / 隱藏播放器
+  toggle.addEventListener('click', () => {
+    player.classList.toggle('hidden');
+    toggle.textContent = player.classList.contains('hidden') ? '🎵' : '✕';
+  });
+
+  // 初始渲染
+  renderList();
+  if(playlist.length > 0) loadTrack(0);
+})();
+</script>
+</body>
+</html>
